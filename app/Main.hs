@@ -7,9 +7,52 @@ import Graphics.UI.Gtk hiding (Action, backspace)
 
 main :: IO ()
 main = do
-  void initGUI          -- (1)
-  window <- windowNew   -- (2)
-                        -- (3)
-  widgetShowAll window  -- (4)
-  mainGUI               -- (5)
+  void initGUI
+  window <- renderWindow
+  display <- renderDisplay
+  widgetShowAll window
+  mainGUI
 
+renderDisplay :: IO Entry
+renderDisplay = do
+  display <- entryNew
+  set display [ entryEditable := False  
+             , entryXalign    := 1  -- right-alignment
+             , entryText := "0" ]
+  pure display
+
+renderWindow :: IO Window
+renderWindow = do
+  window <- windowNew
+  set window [ windowTitle         := "Calculator"
+             , windowResizable     := False
+             , windowDefaultWidth  := 230
+             , windowDefaultHeight := 250 ]
+  pure window
+  
+{-
+-- | Creates a 'Grid'.
+gridNew :: IO Grid
+-}
+
+{-
+-- | Sets whether all rows of grid will have the same height.
+gridSetRowHomogeneous :: GridClass self
+  => self              -- ^ The grid
+  -> Bool              -- ^ 'True' to make rows homogeneous
+  -> IO ()
+-}
+
+{-
+-- | Adds a widget to the grid. The position of child is determined by left
+-- and top. The number of “cells” that child will occupy is determined by
+-- width and height.
+gridAttach :: (GridClass self, WidgetClass child)
+  => self    -- ^ The grid
+  -> child   -- ^ The widget to add
+  -> Int     -- ^ The column number to attach the left side of child to
+  -> Int     -- ^ The row number to attach the top side of child to
+  -> Int     -- ^ Width — the number of columns that child will span
+  -> Int     -- ^ Height — the number of rows that child will span
+  -> IO ()
+  -}
