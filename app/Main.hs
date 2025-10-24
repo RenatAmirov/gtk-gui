@@ -1,15 +1,33 @@
+
 module Main (main) where
 
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.IORef
 import Graphics.UI.Gtk hiding (Action, backspace)
+import Foreign.Ptr
 
 main :: IO ()
 main = do
   void initGUI
   window <- renderWindow
   display <- renderDisplay
+
+  grid <- gridNew
+  gridSetRowHomogeneous grid True
+  containerAdd window grid
+
+  let attach x y w h item = gridAttach grid item x y w h
+  attach 0 0 5 1 display
+  
+  -- Add just one test button
+  button <- buttonNewWithLabel "Test"
+  attach 0 1 1 1 button
+  {-
+  on button buttonPressed $ putStrLn "Button clicked!"
+  on window objectDestroy mainQuit
+  -}
+ 
   widgetShowAll window
   mainGUI
 
@@ -25,34 +43,53 @@ renderWindow :: IO Window
 renderWindow = do
   window <- windowNew
   set window [ windowTitle         := "Calculator"
-             , windowResizable     := False
-             , windowDefaultWidth  := 230
-             , windowDefaultHeight := 250 ]
+            , windowResizable     := False
+            , windowDefaultWidth  := 230
+            , windowDefaultHeight := 250 ]
   pure window
+
+
+{-
+module Main (main) where
+
+import Graphics.UI.Gtk
+
+main :: IO ()
+main = do
+  void initGUI
   
-{-
--- | Creates a 'Grid'.
-gridNew :: IO Grid
--}
+  window <- windowNew
+  set window [ windowTitle := "Calculator"
+             , windowDefaultWidth := 300
+             , windowDefaultHeight := 400 ]
+  
+  grid <- gridNew
+  gridSetRowHomogeneous grid True
+  gridSetColumnHomogeneous grid True
+  containerAdd window grid
+  
+  display <- entryNew
+  set display [ entryEditable := False
+              , entryXalign := 1
+              , entryText := "0" ]
+  
+  let attach x y w h item = gridAttach grid item x y w h
+  attach 0 0 5 1 display
+  
+  -- Add just one test button
+  button <- buttonNewWithLabel "Test"
+  attach 0 1 1 1 button
+  
+  on button buttonPressed $ putStrLn "Button clicked!"
+  on window objectDestroy mainQuit
+  
+  widgetShowAll window
+  mainGUI
 
-{-
--- | Sets whether all rows of grid will have the same height.
-gridSetRowHomogeneous :: GridClass self
-  => self              -- ^ The grid
-  -> Bool              -- ^ 'True' to make rows homogeneous
-  -> IO ()
--}
 
-{-
--- | Adds a widget to the grid. The position of child is determined by left
--- and top. The number of “cells” that child will occupy is determined by
--- width and height.
-gridAttach :: (GridClass self, WidgetClass child)
-  => self    -- ^ The grid
-  -> child   -- ^ The widget to add
-  -> Int     -- ^ The column number to attach the left side of child to
-  -> Int     -- ^ The row number to attach the top side of child to
-  -> Int     -- ^ Width — the number of columns that child will span
-  -> Int     -- ^ Height — the number of rows that child will span
-  -> IO ()
-  -}
+
+  let attach x y w h item = gridAttach grid item x y w h
+  attach 0 0 5 1 display
+    mkBtn "MC" >>= attach 0 1 1 1
+
+-}
