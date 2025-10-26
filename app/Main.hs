@@ -20,29 +20,30 @@ main = do
   -- Add just one test button
   button <- buttonNewWithLabel "Test"
   attach 0 1 1 1 button
-  {-
-  on button buttonPressed $ putStrLn "Button clicked!"
-  on window objectDestroy mainQuit
-  -}
- 
+  
+  _ <- on button buttonActivated $ putStrLn "Button clicked!"
+
+  _ <- on window objectDestroy mainQuit
+
   widgetShowAll window
+
   mainGUI
 
 renderDisplay :: IO Entry
 renderDisplay = do
   display <- entryNew
-  set display [ entryEditable := False  
-             , entryXalign    := 1  -- right-alignment
+  set display [ entryEditable := True  
+             , entryXalign    := 0  -- right-alignment
              , entryText := "0" ]
   pure display
 
 renderWindow :: IO Window
 renderWindow = do
   window <- windowNew
-  set window [ windowTitle         := "Calculator"
+  set window [ windowTitle         := "RNX Calculator 2025"
             , windowResizable     := False
-            , windowDefaultWidth  := 230
-            , windowDefaultHeight := 250 ]
+            , windowDefaultWidth  := 430
+            , windowDefaultHeight := 350 ]
   pure window
 
 
