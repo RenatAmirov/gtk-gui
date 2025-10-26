@@ -1,0 +1,26 @@
+{-fonts: shows info on all your installed fonts.-}
+{-# LANGUAGE OverloadedStrings #-}
+-- Example of an drawing graphics onto a canvas.
+import Data.List ( intersperse )
+import Control.Monad
+import Graphics.UI.Gtk as Gtk
+import GI.Pango
+import GI.PangoCairo
+
+main = do
+  void initGUI
+  fm <- fontMapGetDefault
+  ffs <- fontMapListFamilies fm
+  mapM_ (\ff -> do
+    ffname <- fontFamilyGetName ff
+    putStrLn (show ffname++": ")
+    fcs <- fontFamilyListFaces ff
+    mapM_ (\fc -> do
+      sizes <- fontFaceListSizes fc
+      let showSize Nothing = "all sizes"
+          showSize (Just sz) = concat (intersperse ", " (map show sz))++
+                               " points"
+      fcname <- fontFaceGetFaceName fc
+      putStrLn ("  "++show fcname++" in "++showSize sizes)
+      ) fcs
+    ) ffs
