@@ -2,10 +2,7 @@
 module Main (main) where
 
 import Control.Monad
-import Control.Monad.IO.Class
-import Data.IORef
-import Graphics.UI.Gtk hiding (Action, backspace)
-import Foreign.Ptr
+import Graphics.UI.Gtk
 
 main :: IO ()
 main = do
