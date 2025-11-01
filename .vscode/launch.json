@@ -5,12 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "haskell-debugger",
+            "type": "ghc",
             "request": "launch",
             "name": "Haskell Debugger",
             "projectRoot": "/home/rinux/prj/gtk-gui",
             "entryFile": "/home/rinux/prj/gtk-gui/app/Main.hs",
             "entryPoint": "main",
+            "stopOnEntry": true,
             "entryArgs": [],
             "extraGhcArgs": []
         }
