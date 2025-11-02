@@ -3,7 +3,7 @@
 module Main where
 
 import qualified Graphics.UI.Gtk as Gtk
-import Graphics.UI.Gtk (set, on, AttrOp((:=)))  -- Исправлено!
+import Graphics.UI.Gtk (set, on, AttrOp((:=)))
 import Data.IORef
 import Control.Monad (void)
 import Data.Text (Text, unpack, pack)
@@ -31,16 +31,16 @@ makeMove board row col player
 -- Проверка наличия победителя
 checkWinner :: Board -> Maybe Player
 checkWinner board = 
-  let lines = board ++ transpose board ++ [diag board, diag (map reverse board)] -- Все строки, столбцы и диагонали
+  let lines = board ++ transpose board ++ [diag board, diag (map reverse board)]
   in case filter allEqual (filter (not . any null) lines) of
-      ((Just p):_):_ -> Just p -- Если есть линия с одинаковыми значениями
+      ((Just p):_):_ -> Just p
       _ -> Nothing
   where
     allEqual (x:xs) = all (== x) xs
     allEqual _ = False
     diag b = [b !! i !! i | i <- [0..2]]
 
--- Проверка на ничью (доска заполнена и победителя нет)
+-- Проверка на ничью
 isDraw :: Board -> Bool
 isDraw board = all (all (/= Nothing)) board && checkWinner board == Nothing
 
@@ -49,35 +49,27 @@ isDraw board = all (all (/= Nothing)) board && checkWinner board == Nothing
 createWindow :: IORef Board -> IORef Player -> IO ()
 createWindow boardRef currentPlayerRef = do
   Gtk.initGUI
-  -- Создание окна
   window <- Gtk.windowNew  
   Gtk.set window [ Gtk.windowTitle := pack "Крестики-нолики", Gtk.containerBorderWidth := 10 ]
 
-  -- Создание таблицы 3x3 для кнопок
-  grid <- Gtk.gridNew
-  Gtk.gridSetRowSpacing grid 5
-  Gtk.gridSetColumnSpacing grid 5
-  Gtk.containerAdd window grid
-  set grid [ Gtk.widgetHExpand := True ]
-  set grid [ Gtk.widgetVExpand := True ]
+  -- Главный контейнер
+  mainBox <- Gtk.vBoxNew False 5
+  Gtk.containerAdd window mainBox
 
   -- Создание метки для отображения текущего хода
   statusLabel <- Gtk.labelNew (Just (pack "Ход: X"))
-  Gtk.containerAdd grid statusLabel
-  Gtk.gridAttach grid statusLabel 0 3 3 1 -- Метка занимает всю ширину сетки
-  set statusLabel [ Gtk.widgetHExpand := True ]
-  set statusLabel [ Gtk.widgetVExpand := True ]
+  Gtk.boxPackStart mainBox statusLabel Gtk.PackNatural 0
 
-  -- Создание кнопок для игрового поля и привязка обработчиков событий
-  buttonGrid <- Gtk.gridNew
-  Gtk.gridSetRowSpacing buttonGrid 5
-  Gtk.gridSetColumnSpacing buttonGrid 5
-  Gtk.gridAttach grid buttonGrid 0 0 3 3
-  
+  -- Создание таблицы 3x3 для кнопок с разделителями
+  grid <- Gtk.tableNew 3 3 True  -- True означает однородные ячейки
+  Gtk.boxPackStart mainBox grid Gtk.PackGrow 0
 
+  -- Создание кнопок для игрового поля
   let createButton row col = do
         button <- Gtk.buttonNewWithLabel (pack "")
-        Gtk.gridAttach buttonGrid button col row 1 1
+        -- Устанавливаем минимальный размер для кнопок
+        Gtk.widgetSetSizeRequest button 80 80
+        Gtk.tableAttach grid button col (col+1) row (row+1) [Gtk.Fill] [Gtk.Fill] 5 5
         return button
         
   buttons <- sequence [ createButton row col | row <- [0..2], col <- [0..2] ]
@@ -108,12 +100,12 @@ createWindow boardRef currentPlayerRef = do
           Just newBoard -> do
             writeIORef boardRef newBoard
             case checkWinner newBoard of
-              Just _ -> updateUI -- Игра окончена
+              Just _ -> updateUI
               Nothing -> do
                 let nextPlayer = if currentPlayer == X then O else X
                 writeIORef currentPlayerRef nextPlayer
                 updateUI
-          Nothing -> return () -- Недопустимый ход
+          Nothing -> return ()
 
   -- Привязка обработчиков к кнопкам
   sequence_ [ Gtk.on button Gtk.buttonActivated $ onClicked row col
@@ -126,7 +118,6 @@ createWindow boardRef currentPlayerRef = do
   Gtk.widgetShowAll window
   Gtk.mainGUI
 
--- Точка входа в программу
 main :: IO ()
 main = do
   Gtk.initGUI
