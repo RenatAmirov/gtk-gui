@@ -58,23 +58,28 @@ createWindow boardRef currentPlayerRef = do
   Gtk.gridSetRowSpacing grid 5
   Gtk.gridSetColumnSpacing grid 5
   Gtk.containerAdd window grid
+  set grid [ Gtk.widgetHExpand := True ]
+  set grid [ Gtk.widgetVExpand := True ]
 
   -- Создание метки для отображения текущего хода
   statusLabel <- Gtk.labelNew (Just (pack "Ход: X"))
   Gtk.containerAdd grid statusLabel
   Gtk.gridAttach grid statusLabel 0 3 3 1 -- Метка занимает всю ширину сетки
+  set statusLabel [ Gtk.widgetHExpand := True ]
+  set statusLabel [ Gtk.widgetVExpand := True ]
 
   -- Создание кнопок для игрового поля и привязка обработчиков событий
   buttonGrid <- Gtk.gridNew
   Gtk.gridSetRowSpacing buttonGrid 5
   Gtk.gridSetColumnSpacing buttonGrid 5
   Gtk.gridAttach grid buttonGrid 0 0 3 3
+  
 
   let createButton row col = do
         button <- Gtk.buttonNewWithLabel (pack "")
         Gtk.gridAttach buttonGrid button col row 1 1
         return button
-
+        
   buttons <- sequence [ createButton row col | row <- [0..2], col <- [0..2] ]
 
   -- Функция обновления интерфейса
