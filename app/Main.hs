@@ -61,18 +61,30 @@ createWindow boardRef currentPlayerRef = do
   Gtk.boxPackStart mainBox statusLabel Gtk.PackNatural 0
 
   -- Создание таблицы 3x3 для кнопок с разделителями
-  grid <- Gtk.tableNew 3 3 True  -- True означает однородные ячейки
+  grid <- Gtk.tableNew 3 3 True
   Gtk.boxPackStart mainBox grid Gtk.PackGrow 0
 
-  -- Создание кнопок для игрового поля
+  -- Создание кнопок для игрового поля с увеличенным шрифтом
   let createButton row col = do
-        button <- Gtk.buttonNewWithLabel (pack "")
-        -- Устанавливаем минимальный размер для кнопок
-        Gtk.widgetSetSizeRequest button 80 80
-        Gtk.tableAttach grid button col (col+1) row (row+1) [Gtk.Fill] [Gtk.Fill] 5 5
-        return button
+        button <- Gtk.buttonNew
+        -- Увеличиваем минимальный размер кнопок
+        Gtk.widgetSetSizeRequest button 100 100
         
-  buttons <- sequence [ createButton row col | row <- [0..2], col <- [0..2] ]
+        -- Создаем метку с большим шрифтом
+        label <- Gtk.labelNew (Just (pack ""))
+        fontDesc <- Gtk.fontDescriptionNew
+        Gtk.fontDescriptionSetSize fontDesc 30
+        Gtk.widgetModifyFont label (Just fontDesc)
+        
+        -- Добавляем метку в кнопку
+        Gtk.containerAdd button label
+        
+        Gtk.tableAttach grid button col (col+1) row (row+1) [Gtk.Fill] [Gtk.Fill] 5 5
+        return (button, label)
+        
+  buttonLabels <- sequence [ createButton row col | row <- [0..2], col <- [0..2] ]
+  let buttons = map fst buttonLabels
+      labels = map snd buttonLabels
 
   -- Функция обновления интерфейса
   let updateUI = do
@@ -83,14 +95,14 @@ createWindow boardRef currentPlayerRef = do
                           Nothing -> if isDraw board then "Ничья!" else "Ход: " ++ show currentPlayer
         void $ Gtk.set statusLabel [ Gtk.labelLabel := pack statusText ]
 
-        -- Обновление текста на кнопках
+        -- Обновление текста на метках
         sequence_ [ do
           let cellText = case (board !! row !! col) of
                            Just X -> "X"
                            Just O -> "O"
                            Nothing -> ""
-          void $ Gtk.set button [ Gtk.buttonLabel := pack cellText ]
-          | row <- [0..2], col <- [0..2], let button = buttons !! (row * 3 + col) ]
+          void $ Gtk.set label [ Gtk.labelLabel := pack cellText ]
+          | row <- [0..2], col <- [0..2], let label = labels !! (row * 3 + col) ]
 
   -- Обработчик нажатия на кнопку
   let onClicked row col = do
@@ -120,7 +132,6 @@ createWindow boardRef currentPlayerRef = do
 
 main :: IO ()
 main = do
-  Gtk.initGUI
   boardRef <- newIORef emptyBoard
   currentPlayerRef <- newIORef X
   createWindow boardRef currentPlayerRef
