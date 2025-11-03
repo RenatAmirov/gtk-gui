@@ -79,6 +79,9 @@ createWindow boardRef currentPlayerRef = do
         fontDesc <- Gtk.fontDescriptionNew
         Gtk.fontDescriptionSetSize fontDesc 30
         Gtk.widgetModifyFont label (Just fontDesc)
+
+        -- Установка зеленого цвета текста
+        Gtk.widgetModifyFg label Gtk.StateNormal (Gtk.Color 0 40000 0)  -- Зеленый цвет
         
         -- Добавляем метку в кнопку
         Gtk.containerAdd button label
