@@ -66,25 +66,31 @@ createWindow boardRef currentPlayerRef = do
 
   -- Создание кнопок для игрового поля с увеличенным шрифтом
   let createButton row col = do
-        button <- Gtk.buttonNew
+        button <- Gtk.buttonNewWithLabel (pack "")
         -- Увеличиваем минимальный размер кнопок
         Gtk.widgetSetSizeRequest button 100 100
-        
-        -- Создаем метку с большим шрифтом
-        label <- Gtk.labelNew (Just (pack ""))
-        fontDesc <- Gtk.fontDescriptionNew
-        Gtk.fontDescriptionSetSize fontDesc 30
-        Gtk.widgetModifyFont label (Just fontDesc)
-        
-        -- Добавляем метку в кнопку
-        Gtk.containerAdd button label
-        
+
+        -- Получаем дочерний виджет (метку) кнопки и изменяем шрифт
+        children <- Gtk.containerGetChildren button
+        case children of
+          (label:_) -> do
+            -- Создаем новый шрифт с большим размером
+            fontDesc <- Gtk.fontDescriptionNew
+            Gtk.fontDescriptionSetSize fontDesc 30  -- Большой размер шрифта
+            Gtk.widgetModifyFont label (Just fontDesc)
+            -- Изменяем цвет фона кнопки
+            -- Создаем цвет (R, G, B) в диапазоне 0-65535
+            let rnx1 = Gtk.Color 65500 55000 55000  -- Розовый
+            Gtk.widgetModifyBg label Gtk.StateNormal rnx1
+            -- Изменение цвета текста
+            let darkBlue = Gtk.Color 0 0 40000
+            Gtk.widgetModifyFg label Gtk.StateNormal darkBlue
+          _ -> return ()
+          
         Gtk.tableAttach grid button col (col+1) row (row+1) [Gtk.Fill] [Gtk.Fill] 5 5
-        return (button, label)
+        return button
         
-  buttonLabels <- sequence [ createButton row col | row <- [0..2], col <- [0..2] ]
-  let buttons = map fst buttonLabels
-      labels = map snd buttonLabels
+  buttons <- sequence [ createButton row col | row <- [0..2], col <- [0..2] ]
 
   -- Функция обновления интерфейса
   let updateUI = do
@@ -95,14 +101,14 @@ createWindow boardRef currentPlayerRef = do
                           Nothing -> if isDraw board then "Ничья!" else "Ход: " ++ show currentPlayer
         void $ Gtk.set statusLabel [ Gtk.labelLabel := pack statusText ]
 
-        -- Обновление текста на метках
+        -- Обновление текста на кнопках
         sequence_ [ do
           let cellText = case (board !! row !! col) of
                            Just X -> "X"
                            Just O -> "O"
                            Nothing -> ""
-          void $ Gtk.set label [ Gtk.labelLabel := pack cellText ]
-          | row <- [0..2], col <- [0..2], let label = labels !! (row * 3 + col) ]
+          void $ Gtk.set button [ Gtk.buttonLabel := pack cellText ]
+          | row <- [0..2], col <- [0..2], let button = buttons !! (row * 3 + col) ]
 
   -- Обработчик нажатия на кнопку
   let onClicked row col = do
