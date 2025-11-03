@@ -51,6 +51,7 @@ createWindow boardRef currentPlayerRef = do
   Gtk.initGUI
   window <- Gtk.windowNew  
   Gtk.set window [ Gtk.windowTitle := pack "Крестики-нолики", Gtk.containerBorderWidth := 10 ]
+  Gtk.widgetModifyBg window Gtk.StateNormal (Gtk.Color 65535 65535 40000)
 
   -- Главный контейнер
   mainBox <- Gtk.vBoxNew False 5
