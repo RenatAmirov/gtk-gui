@@ -110,12 +110,11 @@ changeDirection currentDir newDir
 -- = Графический интерфейс GTK =
 
 -- Функция для рисования одной клетки с использованием Cairo
-drawCell :: Cairo.Render () -> Position -> Cairo.Render ()
-drawCell setColor (x, y) = do
+drawCell :: Position -> Cairo.Render ()
+drawCell (x, y) = do
   let xPix = fromIntegral (x * cellSize) + 0.5
       yPix = fromIntegral (y * cellSize) + 0.5
       size = fromIntegral (cellSize - 1)
-  setColor
   Cairo.rectangle xPix yPix size size
   Cairo.fill
 
@@ -127,7 +126,7 @@ createWindow gameStateRef = do
   -- Создание главного окна
   window <- Gtk.windowNew
   Gtk.set window 
-    [ Gtk.windowTitle := "Червячок (Snake) - Haskell/GTK+3"
+    [ Gtk.windowTitle := (pack "Червячок (Snake) - Haskell/GTK+3")
     , Gtk.containerBorderWidth := 10
     , Gtk.windowDefaultWidth := gridSize * cellSize + 50
     , Gtk.windowDefaultHeight := gridSize * cellSize + 100
@@ -138,7 +137,7 @@ createWindow gameStateRef = do
   Gtk.containerAdd window mainBox
   
   -- Метка для отображения счета
-  scoreLabel <- Gtk.labelNew (Just "Счет: 0")
+  scoreLabel <- Gtk.labelNew (Just (pack "Счет: 0"))
   Gtk.boxPackStart mainBox scoreLabel Gtk.PackNatural 0
   
   -- Область для рисования игры
@@ -147,11 +146,11 @@ createWindow gameStateRef = do
   Gtk.boxPackStart mainBox drawingArea Gtk.PackGrow 0
   
   -- Метка для отображения статуса игры
-  statusLabel <- Gtk.labelNew (Just "Игра началась! Управление: стрелки")
+  statusLabel <- Gtk.labelNew (Just (pack "Игра началась! Управление: стрелки"))
   Gtk.boxPackStart mainBox statusLabel Gtk.PackNatural 0
   
   -- Кнопка для перезапуска игры
-  restartButton <- Gtk.buttonNewWithLabel "Новая игра"
+  restartButton <- Gtk.buttonNewWithLabel (pack "Новая игра")
   Gtk.boxPackStart mainBox restartButton Gtk.PackNatural 0
   
   -- Обработчик отрисовки с использованием Cairo
@@ -163,18 +162,16 @@ createWindow gameStateRef = do
     Cairo.paint
     
     -- Рисуем червяка (зеленый)
-    let drawGreenCell = Cairo.setSourceRGB 0 1 0
-    mapM_ (drawCell drawGreenCell) (tail (snake state))
+    Cairo.setSourceRGB 0 1 0
+    mapM_ drawCell (tail (snake state))
     
     -- Рисуем голову червяка (ярко-зеленый)
-    let drawBrightGreenCell = Cairo.setSourceRGB 0.2 1 0.2
-    drawCell drawBrightGreenCell (head (snake state))
+    Cairo.setSourceRGB 0.2 1 0.2
+    drawCell (head (snake state))
     
     -- Рисуем еду (красный)
-    let drawRedCell = Cairo.setSourceRGB 1 0 0
-    drawCell drawRedCell (food state)
-    
-    return True
+    Cairo.setSourceRGB 1 0 0
+    drawCell (food state)
   
   -- Функция для обновления интерфейса
   let updateUI = do
