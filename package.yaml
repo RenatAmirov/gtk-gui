@@ -50,6 +50,8 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - gtk-gui
+    - random
+    - cairo
 
 tests:
   gtk-gui-test:
