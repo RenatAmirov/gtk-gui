@@ -4,142 +4,233 @@ module Main where
 
 import qualified Graphics.UI.Gtk as Gtk
 import Graphics.UI.Gtk (set, on, AttrOp((:=)))
+import qualified Graphics.Rendering.Cairo as Cairo
 import Data.IORef
-import Control.Monad (void)
-import Data.Text (Text, unpack, pack)
-import Data.List (transpose)
+import Control.Monad (void, when)
+import Control.Monad.IO.Class (liftIO)
+import Data.Text (Text, pack)
+import System.Random (randomRIO)
 
--- = Логика игры =
--- Типы для представления игрока и клетки на доске
-data Player = X | O deriving (Eq, Show)
-type Cell = Maybe Player
-type Board = [[Cell]]
+-- = Логика игры "Червячок" =
 
--- Создание пустой доски 3x3
-emptyBoard :: Board
-emptyBoard = replicate 3 (replicate 3 Nothing)
+-- Направление движения червяка (переименовано чтобы избежать конфликта)
+data Direction = DirUp | DirDown | DirLeft | DirRight deriving (Eq, Show)
 
--- Функция для выполнения хода
-makeMove :: Board -> Int -> Int -> Player -> Maybe Board
-makeMove board row col player
-  | row < 0 || row > 2 || col < 0 || col > 2 = Nothing
-  | (board !! row !! col) /= Nothing = Nothing
-  | otherwise = Just $ update2DList row col (Just player) board
-  where
-    update2DList i j val xs = take i xs ++ [take j (xs !! i) ++ [val] ++ drop (j+1) (xs !! i)] ++ drop (i+1) xs
+-- Позиция на игровом поле
+type Position = (Int, Int)
 
--- Проверка наличия победителя
-checkWinner :: Board -> Maybe Player
-checkWinner board = 
-  let lines = board ++ transpose board ++ [diag board, diag (map reverse board)]
-  in case filter allEqual (filter (not . any null) lines) of
-      ((Just p):_):_ -> Just p
-      _ -> Nothing
-  where
-    allEqual (x:xs) = all (== x) xs
-    allEqual _ = False
-    diag b = [b !! i !! i | i <- [0..2]]
+-- Состояние игры
+data GameState = GameState
+  { snake :: [Position]      -- Голова в начале списка
+  , direction :: Direction
+  , food :: Position
+  , gameOver :: Bool
+  , score :: Int
+  } deriving (Show)
 
--- Проверка на ничью
-isDraw :: Board -> Bool
-isDraw board = all (all (/= Nothing)) board && checkWinner board == Nothing
+-- Размеры игрового поля
+gridSize :: Int
+gridSize = 20
+
+cellSize :: Int
+cellSize = 25
+
+-- Начальное состояние игры
+initialGameState :: IO GameState
+initialGameState = do
+  let startSnake = [(5, 5), (5, 4), (5, 3)]  -- Начальная позиция червяка
+  startFood <- generateFood startSnake
+  return $ GameState
+    { snake = startSnake
+    , direction = DirRight
+    , food = startFood
+    , gameOver = False
+    , score = 0
+    }
+
+-- Генерация еды в случайной позиции, не занятой червяком
+generateFood :: [Position] -> IO Position
+generateFood snakePositions = do
+  x <- randomRIO (0, gridSize - 1)
+  y <- randomRIO (0, gridSize - 1)
+  if (x, y) `elem` snakePositions
+    then generateFood snakePositions
+    else return (x, y)
+
+-- Обновление состояния игры
+updateGame :: GameState -> IO GameState
+updateGame state
+  | gameOver state = return state
+  | otherwise = do
+    let (headX, headY) = head (snake state)
+        newHead = case direction state of
+          DirUp    -> (headX, headY - 1)
+          DirDown  -> (headX, headY + 1)
+          DirLeft  -> (headX - 1, headY)
+          DirRight -> (headX + 1, headY)
+        
+        -- Проверка столкновений
+        collision = newHead `elem` tail (snake state) ||
+                   fst newHead < 0 || fst newHead >= gridSize ||
+                   snd newHead < 0 || snd newHead >= gridSize
+        
+        ateFood = newHead == food state
+    
+    if collision
+      then return $ state { gameOver = True }
+      else do
+        let newSnakeBody = if ateFood 
+              then snake state  -- Червяк растет, когда ест еду
+              else init (snake state)
+            
+            newSnake = newHead : newSnakeBody
+            
+            newScore = if ateFood 
+              then score state + 10 
+              else score state
+        
+        newFood <- if ateFood 
+          then generateFood newSnake 
+          else return (food state)
+        
+        return $ state
+          { snake = newSnake
+          , food = newFood
+          , score = newScore
+          }
+
+-- Изменение направления движения
+changeDirection :: Direction -> Direction -> Direction
+changeDirection currentDir newDir
+  -- Запрещаем движение в противоположном направлении
+  | (currentDir, newDir) `elem` [(DirUp, DirDown), (DirDown, DirUp), (DirLeft, DirRight), (DirRight, DirLeft)] 
+    = currentDir
+  | otherwise = newDir
 
 -- = Графический интерфейс GTK =
+
+-- Функция для рисования одной клетки с использованием Cairo
+drawCell :: Position -> Cairo.Render ()
+drawCell (x, y) = do
+  let xPix = fromIntegral (x * cellSize) + 0.5
+      yPix = fromIntegral (y * cellSize) + 0.5
+      size = fromIntegral (cellSize - 1)
+  Cairo.rectangle xPix yPix size size
+  Cairo.fill
+
 -- Создание главного окна
-createWindow :: IORef Board -> IORef Player -> IO ()
-createWindow boardRef currentPlayerRef = do
+createWindow :: IORef GameState -> IO ()
+createWindow gameStateRef = do
   Gtk.initGUI
-  window <- Gtk.windowNew  
-  Gtk.set window [ Gtk.windowTitle := pack "Крестики-нолики", Gtk.containerBorderWidth := 10 ]
-  Gtk.widgetModifyBg window Gtk.StateNormal (Gtk.Color 65535 65535 40000)
-
-  -- Главный контейнер
-  mainBox <- Gtk.vBoxNew False 5
+  
+  -- Создание главного окна
+  window <- Gtk.windowNew
+  Gtk.set window 
+    [ Gtk.windowTitle := (pack "Червячок (Snake) - Haskell/GTK+3")
+    , Gtk.containerBorderWidth := 10
+    , Gtk.windowDefaultWidth := gridSize * cellSize + 50
+    , Gtk.windowDefaultHeight := gridSize * cellSize + 100
+    ]
+  
+  -- Главный вертикальный контейнер
+  mainBox <- Gtk.vBoxNew False 10
   Gtk.containerAdd window mainBox
-
-  -- Создание метки для отображения текущего хода
-  statusLabel <- Gtk.labelNew (Just (pack "Ход: X"))
+  
+  -- Метка для отображения счета
+  scoreLabel <- Gtk.labelNew (Just (pack "Счет: 0"))
+  Gtk.boxPackStart mainBox scoreLabel Gtk.PackNatural 0
+  
+  -- Область для рисования игры
+  drawingArea <- Gtk.drawingAreaNew
+  Gtk.widgetSetSizeRequest drawingArea (gridSize * cellSize) (gridSize * cellSize)
+  Gtk.boxPackStart mainBox drawingArea Gtk.PackGrow 0
+  
+  -- Метка для отображения статуса игры
+  statusLabel <- Gtk.labelNew (Just (pack "Игра началась! Управление: стрелки"))
   Gtk.boxPackStart mainBox statusLabel Gtk.PackNatural 0
-
-  -- Создание таблицы 3x3 для кнопок с разделителями
-  grid <- Gtk.tableNew 3 3 True
-  Gtk.boxPackStart mainBox grid Gtk.PackGrow 0
-
-  -- Создание кнопок для игрового поля с увеличенным шрифтом
-  let createButton row col = do
-        button <- Gtk.buttonNew
-        -- Увеличиваем минимальный размер кнопок
-        Gtk.widgetSetSizeRequest button 100 100
-
-        -- Установка фона для кнопки
-        Gtk.widgetModifyBg button Gtk.StateNormal (Gtk.Color 189 86 157)
-        Gtk.widgetModifyFg button Gtk.StateNormal (Gtk.Color 65535 65535 40000)
-        
-        -- Создаем метку с большим шрифтом
-        label <- Gtk.labelNew (Just (pack ""))
-        fontDesc <- Gtk.fontDescriptionNew
-        Gtk.fontDescriptionSetSize fontDesc 30
-        Gtk.widgetModifyFont label (Just fontDesc)
-
-        -- Установка зеленого цвета текста
-        Gtk.widgetModifyFg label Gtk.StateNormal (Gtk.Color 0 40000 0)  -- Зеленый цвет
-        
-        -- Добавляем метку в кнопку
-        Gtk.containerAdd button label
-        
-        Gtk.tableAttach grid button col (col+1) row (row+1) [Gtk.Fill] [Gtk.Fill] 5 5
-        return (button, label)
-        
-  buttonLabels <- sequence [ createButton row col | row <- [0..2], col <- [0..2] ]
-  let buttons = map fst buttonLabels
-      labels = map snd buttonLabels
-
-  -- Функция обновления интерфейса
+  
+  -- Кнопка для перезапуска игры
+  restartButton <- Gtk.buttonNewWithLabel (pack "Новая игра")
+  Gtk.boxPackStart mainBox restartButton Gtk.PackNatural 0
+  
+  -- Обработчик отрисовки с использованием Cairo
+  Gtk.on drawingArea Gtk.draw $ do
+    state <- liftIO $ readIORef gameStateRef
+    
+    -- Устанавливаем черный фон
+    Cairo.setSourceRGB 0 0 0
+    Cairo.paint
+    
+    -- Рисуем червяка (зеленый)
+    Cairo.setSourceRGB 0 1 0
+    mapM_ drawCell (tail (snake state))
+    
+    -- Рисуем голову червяка (ярко-зеленый)
+    Cairo.setSourceRGB 0.2 1 0.2
+    drawCell (head (snake state))
+    
+    -- Рисуем еду (красный)
+    Cairo.setSourceRGB 1 0 0
+    drawCell (food state)
+  
+  -- Функция для обновления интерфейса
   let updateUI = do
-        board <- readIORef boardRef
-        currentPlayer <- readIORef currentPlayerRef
-        let statusText = case checkWinner board of
-                          Just p -> "Победитель: " ++ show p
-                          Nothing -> if isDraw board then "Ничья!" else "Ход: " ++ show currentPlayer
-        void $ Gtk.set statusLabel [ Gtk.labelLabel := pack statusText ]
-
-        -- Обновление текста на метках
-        sequence_ [ do
-          let cellText = case (board !! row !! col) of
-                           Just X -> "X"
-                           Just O -> "O"
-                           Nothing -> ""
-          void $ Gtk.set label [ Gtk.labelLabel := pack cellText ]
-          | row <- [0..2], col <- [0..2], let label = labels !! (row * 3 + col) ]
-
-  -- Обработчик нажатия на кнопку
-  let onClicked row col = do
-        board <- readIORef boardRef
-        currentPlayer <- readIORef currentPlayerRef
-        case makeMove board row col currentPlayer of
-          Just newBoard -> do
-            writeIORef boardRef newBoard
-            case checkWinner newBoard of
-              Just _ -> updateUI
-              Nothing -> do
-                let nextPlayer = if currentPlayer == X then O else X
-                writeIORef currentPlayerRef nextPlayer
-                updateUI
-          Nothing -> return ()
-
-  -- Привязка обработчиков к кнопкам
-  sequence_ [ Gtk.on button Gtk.buttonActivated $ onClicked row col
-            | row <- [0..2], col <- [0..2], let button = buttons !! (row * 3 + col) ]
-
-  -- Обработчик закрытия окна
+        state <- readIORef gameStateRef
+        Gtk.set scoreLabel [Gtk.labelLabel := pack ("Счет: " ++ show (score state))]
+        Gtk.set statusLabel [Gtk.labelLabel := pack (
+          if gameOver state 
+            then "Игра окончена! Нажмите 'Новая игра'"
+            else "Игра идет... Управление: стрелки"
+          )]
+        Gtk.widgetQueueDraw drawingArea
+  
+  -- Обработка нажатий клавиш
+  Gtk.on window Gtk.keyPressEvent $ do
+    keyVal <- Gtk.eventKeyVal
+    state <- liftIO $ readIORef gameStateRef
+    let newDir = case keyVal of
+          65362 -> Just DirUp      -- Код клавиши Up
+          65364 -> Just DirDown    -- Код клавиши Down  
+          65361 -> Just DirLeft    -- Код клавиши Left
+          65363 -> Just DirRight   -- Код клавиши Right
+          _ -> Nothing
+        
+    case newDir of
+      Just dir -> do
+        let currentDir = direction state
+            actualDir = changeDirection currentDir dir
+        liftIO $ modifyIORef gameStateRef (\s -> s { direction = actualDir })
+        return True
+      Nothing -> return False
+  
+  -- Обработка кнопки перезапуска
+  Gtk.on restartButton Gtk.buttonActivated $ do
+    newState <- initialGameState
+    writeIORef gameStateRef newState
+    updateUI
+  
+  -- Игровой цикл (обновление каждые 150 мс)
+  let gameLoop :: IO Bool
+      gameLoop = do
+        state <- readIORef gameStateRef
+        newState <- updateGame state
+        writeIORef gameStateRef newState
+        updateUI
+        return (not (gameOver newState))
+  
+  -- Запуск игрового цикла
+  void $ Gtk.timeoutAdd gameLoop 150
+  
+  -- Обработка закрытия окна
   Gtk.on window Gtk.objectDestroy Gtk.mainQuit
-
-  -- Запуск приложения
+  
+  -- Отображение окна и запуск главного цикла
   Gtk.widgetShowAll window
   Gtk.mainGUI
 
+-- Главная функция
 main :: IO ()
 main = do
-  boardRef <- newIORef emptyBoard
-  currentPlayerRef <- newIORef X
-  createWindow boardRef currentPlayerRef
+  initialState <- initialGameState
+  gameStateRef <- newIORef initialState
+  createWindow gameStateRef
