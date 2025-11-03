@@ -70,6 +70,9 @@ createWindow boardRef currentPlayerRef = do
         button <- Gtk.buttonNew
         -- Увеличиваем минимальный размер кнопок
         Gtk.widgetSetSizeRequest button 100 100
+
+        -- Установка фона для кнопки
+        Gtk.widgetModifyBg button Gtk.StateNormal (Gtk.Color 189 86 157)
         
         -- Создаем метку с большим шрифтом
         label <- Gtk.labelNew (Just (pack ""))
