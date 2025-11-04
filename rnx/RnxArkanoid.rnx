@@ -218,6 +218,26 @@ movePaddle state delta
         newX = max 0 (min (fieldWidth - paddleWidth) (x + delta))
     in state { paddle = (newX, y) }
 
+-- Функция для рисования блоков
+drawBlock :: [Position] -> Int -> Cairo.Render ()
+drawBlock blocks row = do
+  let rowBlocks = filter (\(_, y) -> 
+        y >= fromIntegral (50 + row * 25) && 
+        y < fromIntegral (50 + (row + 1) * 25)) blocks
+  
+  -- Разные цвета для разных рядов
+  case row of
+    0 -> Cairo.setSourceRGB 1 0 0    -- Красный
+    1 -> Cairo.setSourceRGB 1 0.5 0  -- Оранжевый
+    2 -> Cairo.setSourceRGB 1 1 0    -- Желтый
+    3 -> Cairo.setSourceRGB 0 1 0    -- Зеленый
+    4 -> Cairo.setSourceRGB 0 0 1    -- Синий
+    _ -> Cairo.setSourceRGB 1 1 1    -- Белый (запасной)
+  
+  mapM_ (\(x, y) -> do
+    Cairo.rectangle x y blockWidth blockHeight
+    Cairo.fill) rowBlocks
+
 -- = Графический интерфейс GTK =
 
 -- Создание главного окна
@@ -285,25 +305,6 @@ createWindow gameStateRef = do
     
     -- Рисуем блоки (разные цвета в зависимости от ряда)
     mapM_ (drawBlock (blocks state)) [0..4]
-  
-  -- Функция для рисования блока
-  let drawBlock blocks row = do
-        let rowBlocks = filter (\(_, y) -> 
-              y >= fromIntegral (50 + row * 25) && 
-              y < fromIntegral (50 + (row + 1) * 25)) blocks
-        
-        -- Разные цвета для разных рядов
-        case row of
-          0 -> Cairo.setSourceRGB 1 0 0    -- Красный
-          1 -> Cairo.setSourceRGB 1 0.5 0  -- Оранжевый
-          2 -> Cairo.setSourceRGB 1 1 0    -- Желтый
-          3 -> Cairo.setSourceRGB 0 1 0    -- Зеленый
-          4 -> Cairo.setSourceRGB 0 0 1    -- Синий
-          _ -> Cairo.setSourceRGB 1 1 1    -- Белый (запасной)
-        
-        mapM_ (\(x, y) -> do
-          Cairo.rectangle x y blockWidth blockHeight
-          Cairo.fill) rowBlocks
   
   -- Функция для обновления интерфейса
   let updateUI = do
