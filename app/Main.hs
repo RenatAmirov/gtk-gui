@@ -440,7 +440,8 @@ createWindow gameStateRef = do
     button <- Gtk.eventButton
     state <- liftIO $ readIORef gameStateRef
     
-    when (button == 1 && not (gameOver state)) $ do  -- Левая кнопка мыши
+    -- Используем LeftButton вместо числового значения 1
+    when (button == Gtk.LeftButton && not (gameOver state)) $ do
       let col = floor (x / cellSize)
           row = floor (y / cellSize)
           pos = (row, col)

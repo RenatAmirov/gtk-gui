@@ -240,132 +240,45 @@ setCell board (row, col) value =
 
 -- = Графический интерфейс GTK =
 
--- Создание главного окна
-createWindow :: IORef GameState -> IO ()
-createWindow gameStateRef = do
-  Gtk.initGUI
+-- Обработка клика по клетке
+handleCellClick :: IORef GameState -> (IO ()) -> GameState -> Position -> IO ()
+handleCellClick gameStateRef updateUI state pos = do
+  let (row, col) = pos
+      cell = getPiece pos (board state)
   
-  -- Создание главного окна
-  window <- Gtk.windowNew
-  Gtk.set window 
-    [ Gtk.windowTitle := (pack "Шашки - Haskell/GTK+3")
-    , Gtk.containerBorderWidth := 10
-    , Gtk.windowDefaultWidth := 500
-    , Gtk.windowDefaultHeight := 600
-    ]
-  
-  -- Главный вертикальный контейнер
-  mainBox <- Gtk.vBoxNew False 10
-  Gtk.containerAdd window mainBox
-  
-  -- Метка для отображения текущего игрока
-  playerLabel <- Gtk.labelNew (Just (pack "Ход черных"))
-  Gtk.boxPackStart mainBox playerLabel Gtk.PackNatural 0
-  
-  -- Область для рисования доски
-  drawingArea <- Gtk.drawingAreaNew
-  Gtk.widgetSetSizeRequest drawingArea (floor (cellSize * 8)) (floor (cellSize * 8))
-  Gtk.boxPackStart mainBox drawingArea Gtk.PackGrow 0
-  
-  -- Метка для отображения статуса игры
-  statusLabel <- Gtk.labelNew (Just (pack "Выберите шашку для хода"))
-  Gtk.boxPackStart mainBox statusLabel Gtk.PackNatural 0
-  
-  -- Горизонтальный контейнер для кнопок
-  buttonBox <- Gtk.hBoxNew True 10
-  Gtk.boxPackStart mainBox buttonBox Gtk.PackNatural 0
-  
-  -- Кнопка для перезапуска игры
-  restartButton <- Gtk.buttonNewWithLabel (pack "Новая игра")
-  Gtk.boxPackStart buttonBox restartButton Gtk.PackGrow 0
-  
-  -- Обработчик отрисовки с использованием Cairo
-  Gtk.on drawingArea Gtk.draw $ do
-    state <- liftIO $ readIORef gameStateRef
-    drawBoard state
-  
-  -- Обработка кликов мыши
-  Gtk.on drawingArea Gtk.buttonPressEvent $ do
-    (x, y) <- Gtk.eventCoordinates
-    button <- Gtk.eventButton
-    state <- liftIO $ readIORef gameStateRef
+  case selectedPiece state of
+    Nothing ->  -- Ничего не выбрано
+      case cell of
+        Just (Piece player _) | player == currentPlayer state -> 
+          -- Выбираем шашку текущего игрока
+          let moves = getValidMoves pos (board state) player
+          in writeIORef gameStateRef $ state 
+             { selectedPiece = Just pos
+             , validMoves = moves
+             }
+        _ -> return ()  -- Клик по пустой клетке или чужой шашке
     
-    when (button == 1 && not (gameOver state)) $ do  -- Левая кнопка мыши
-      let col = floor (x / cellSize)
-          row = floor (y / cellSize)
-          pos = (row, col)
-      
-      liftIO $ handleCellClick state pos
-      
-    return True
+    Just selected ->  -- Уже есть выбранная шашка
+      if pos `elem` validMoves state
+      then do
+        -- Выполняем ход
+        modifyIORef gameStateRef (\s -> makeMove s selected pos)
+      else
+        -- Выбираем другую шашку или снимаем выделение
+        case cell of
+          Just (Piece player _) | player == currentPlayer state -> 
+            let moves = getValidMoves pos (board state) player
+            in writeIORef gameStateRef $ state 
+               { selectedPiece = Just pos
+               , validMoves = moves
+               }
+          _ -> 
+            writeIORef gameStateRef $ state 
+              { selectedPiece = Nothing
+              , validMoves = []
+              }
   
-  -- Функция для обновления интерфейса
-  let updateUI = do
-        state <- readIORef gameStateRef
-        let playerText = case currentPlayer state of
-              Black -> "Ход черных"
-              White -> "Ход белых"
-            statusText = if gameOver state
-              then case winner state of
-                Just Black -> "Игра окончена! Победили черные!"
-                Just White -> "Игра окончена! Победили белые!"
-                Nothing -> "Игра окончена!"
-              else "Выберите шашку для хода"
-        
-        Gtk.set playerLabel [Gtk.labelLabel := pack playerText]
-        Gtk.set statusLabel [Gtk.labelLabel := pack statusText]
-        Gtk.widgetQueueDraw drawingArea
-  
-  -- Обработка клика по клетке
-  let handleCellClick state pos = do
-        let (row, col) = pos
-            cell = getPiece pos (board state)
-        
-        case selectedPiece state of
-          Nothing ->  -- Ничего не выбрано
-            case cell of
-              Just (Piece player _) | player == currentPlayer state -> 
-                -- Выбираем шашку текущего игрока
-                let moves = getValidMoves pos (board state) player
-                in writeIORef gameStateRef $ state 
-                   { selectedPiece = Just pos
-                   , validMoves = moves
-                   }
-              _ -> return ()  -- Клик по пустой клетке или чужой шашке
-          
-          Just selected ->  -- Уже есть выбранная шашка
-            if pos `elem` validMoves state
-            then do
-              -- Выполняем ход
-              modifyIORef gameStateRef (\s -> makeMove s selected pos)
-            else
-              -- Выбираем другую шашку или снимаем выделение
-              case cell of
-                Just (Piece player _) | player == currentPlayer state -> 
-                  let moves = getValidMoves pos (board state) player
-                  in writeIORef gameStateRef $ state 
-                     { selectedPiece = Just pos
-                     , validMoves = moves
-                     }
-                _ -> 
-                  writeIORef gameStateRef $ state 
-                    { selectedPiece = Nothing
-                    , validMoves = []
-                    }
-        
-        updateUI
-  
-  -- Обработка кнопки перезапуска
-  Gtk.on restartButton Gtk.buttonActivated $ do
-    writeIORef gameStateRef initialGameState
-    updateUI
-  
-  -- Обработка закрытия окна
-  Gtk.on window Gtk.objectDestroy Gtk.mainQuit
-  
-  -- Отображение окна и запуск главного цикла
-  Gtk.widgetShowAll window
-  Gtk.mainGUI
+  updateUI
 
 -- Рисование доски
 drawBoard :: GameState -> Cairo.Render ()
@@ -459,6 +372,95 @@ drawPiece row col piece = do
     fst3 (x, _, _) = x
     snd3 (_, y, _) = y
     thd3 (_, _, z) = z
+
+-- Создание главного окна
+createWindow :: IORef GameState -> IO ()
+createWindow gameStateRef = do
+  Gtk.initGUI
+  
+  -- Создание главного окна
+  window <- Gtk.windowNew
+  Gtk.set window 
+    [ Gtk.windowTitle := (pack "Шашки - Haskell/GTK+3")
+    , Gtk.containerBorderWidth := 10
+    , Gtk.windowDefaultWidth := 500
+    , Gtk.windowDefaultHeight := 600
+    ]
+  
+  -- Главный вертикальный контейнер
+  mainBox <- Gtk.vBoxNew False 10
+  Gtk.containerAdd window mainBox
+  
+  -- Метка для отображения текущего игрока
+  playerLabel <- Gtk.labelNew (Just (pack "Ход черных"))
+  Gtk.boxPackStart mainBox playerLabel Gtk.PackNatural 0
+  
+  -- Область для рисования доски
+  drawingArea <- Gtk.drawingAreaNew
+  Gtk.widgetSetSizeRequest drawingArea (floor (cellSize * 8)) (floor (cellSize * 8))
+  Gtk.boxPackStart mainBox drawingArea Gtk.PackGrow 0
+  
+  -- Метка для отображения статуса игры
+  statusLabel <- Gtk.labelNew (Just (pack "Выберите шашку для хода"))
+  Gtk.boxPackStart mainBox statusLabel Gtk.PackNatural 0
+  
+  -- Горизонтальный контейнер для кнопок
+  buttonBox <- Gtk.hBoxNew True 10
+  Gtk.boxPackStart mainBox buttonBox Gtk.PackNatural 0
+  
+  -- Кнопка для перезапуска игры
+  restartButton <- Gtk.buttonNewWithLabel (pack "Новая игра")
+  Gtk.boxPackStart buttonBox restartButton Gtk.PackGrow 0
+  
+  -- Обработчик отрисовки с использованием Cairo
+  Gtk.on drawingArea Gtk.draw $ do
+    state <- liftIO $ readIORef gameStateRef
+    drawBoard state
+  
+  -- Функция для обновления интерфейса
+  let updateUI = do
+        state <- readIORef gameStateRef
+        let playerText = case currentPlayer state of
+              Black -> "Ход черных"
+              White -> "Ход белых"
+            statusText = if gameOver state
+              then case winner state of
+                Just Black -> "Игра окончена! Победили черные!"
+                Just White -> "Игра окончена! Победили белые!"
+                Nothing -> "Игра окончена!"
+              else "Выберите шашку для хода"
+        
+        Gtk.set playerLabel [Gtk.labelLabel := pack playerText]
+        Gtk.set statusLabel [Gtk.labelLabel := pack statusText]
+        Gtk.widgetQueueDraw drawingArea
+  
+  -- Обработка кликов мыши
+  Gtk.on drawingArea Gtk.buttonPressEvent $ do
+    (x, y) <- Gtk.eventCoordinates
+    button <- Gtk.eventButton
+    state <- liftIO $ readIORef gameStateRef
+    
+    -- Используем LeftButton вместо числового значения 1
+    when (button == Gtk.LeftButton && not (gameOver state)) $ do
+      let col = floor (x / cellSize)
+          row = floor (y / cellSize)
+          pos = (row, col)
+      
+      liftIO $ handleCellClick gameStateRef updateUI state pos
+      
+    return True
+  
+  -- Обработка кнопки перезапуска
+  Gtk.on restartButton Gtk.buttonActivated $ do
+    writeIORef gameStateRef initialGameState
+    updateUI
+  
+  -- Обработка закрытия окна
+  Gtk.on window Gtk.objectDestroy Gtk.mainQuit
+  
+  -- Отображение окна и запуск главного цикла
+  Gtk.widgetShowAll window
+  Gtk.mainGUI
 
 -- Главная функция
 main :: IO ()
