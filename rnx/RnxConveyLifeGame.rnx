@@ -113,7 +113,7 @@ createWindow gameStateRef = do
     , Gtk.windowDefaultHeight := 600
     ]
   
-  -- Главный вертикальный контейнер
+  -- Главный вертикальный  контейнер
   mainBox <- Gtk.vBoxNew False 10
   Gtk.containerAdd window mainBox
   
