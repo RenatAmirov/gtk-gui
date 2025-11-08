@@ -1,0 +1,225 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main where
+
+import qualified Graphics.UI.Gtk as Gtk
+import Graphics.UI.Gtk (set, on, AttrOp((:=)))
+import qualified Graphics.Rendering.Cairo as Cairo
+import Data.IORef
+import Control.Monad (void, when)
+import Control.Monad.IO.Class (liftIO)
+import Data.Text (Text, pack)
+
+-- = Логика задачи о кошках =
+
+-- Решение задачи: 4 кошки
+-- Объяснение:
+-- 1. В комнате 4 угла, в каждом углу по кошке = 4 кошки
+-- 2. Напротив каждой кошки по три кошки - это выполняется, так как из каждого угла видны три других угла
+-- 3. На хвосте каждой кошки по одной кошке - каждая кошка сидит на своем хвосте
+
+totalCats :: Int
+totalCats = 4
+
+-- Состояние приложения
+data AppState = AppState
+  { currentAnswer :: Int
+  , showExplanation :: Bool
+  } deriving (Show)
+
+initialAppState :: AppState
+initialAppState = AppState
+  { currentAnswer = 0
+  , showExplanation = False
+  }
+
+-- = Графический интерфейс GTK =
+
+-- Создание главного окна
+createWindow :: IORef AppState -> IO ()
+createWindow appStateRef = do
+  Gtk.initGUI
+  
+  -- Создание главного окна
+  window <- Gtk.windowNew
+  Gtk.set window 
+    [ Gtk.windowTitle := (pack "Сколько кошек? - Задача-головоломка")
+    , Gtk.containerBorderWidth := 15
+    , Gtk.windowDefaultWidth := 600
+    , Gtk.windowDefaultHeight := 500
+    ]
+  
+  -- Главный вертикальный контейнер
+  mainBox <- Gtk.vBoxNew False 15
+  Gtk.containerAdd window mainBox
+  
+  -- Заголовок (используем разметку Pango для увеличения шрифта)
+  titleLabel <- Gtk.labelNew Nothing
+  Gtk.labelSetMarkup titleLabel (pack "<span size='x-large' weight='bold'>Сколько кошек?</span>")
+  Gtk.boxPackStart mainBox titleLabel Gtk.PackNatural 0
+  
+  -- Описание задачи
+  taskText <- Gtk.labelNew (Just (pack taskDescription))
+  Gtk.set taskText [Gtk.labelLineWrap := True]
+  Gtk.boxPackStart mainBox taskText Gtk.PackNatural 0
+  
+  -- Область для визуализации кошек
+  drawingArea <- Gtk.drawingAreaNew
+  Gtk.widgetSetSizeRequest drawingArea 400 300
+  Gtk.boxPackStart mainBox drawingArea Gtk.PackGrow 0
+  
+  -- Метка для отображения ответа
+  answerLabel <- Gtk.labelNew (Just (pack "Нажмите кнопку, чтобы узнать ответ"))
+  Gtk.set answerLabel [Gtk.labelSelectable := True]
+  Gtk.boxPackStart mainBox answerLabel Gtk.PackNatural 0
+  
+  -- Метка для объяснения
+  explanationLabel <- Gtk.labelNew Nothing
+  Gtk.set explanationLabel [Gtk.labelLineWrap := True, Gtk.labelSelectable := True]
+  Gtk.boxPackStart mainBox explanationLabel Gtk.PackNatural 0
+  
+  -- Горизонтальный контейнер для кнопок
+  buttonBox <- Gtk.hBoxNew True 10
+  Gtk.boxPackStart mainBox buttonBox Gtk.PackNatural 0
+  
+  -- Кнопки управления
+  showAnswerButton <- Gtk.buttonNewWithLabel (pack "Показать ответ")
+  Gtk.boxPackStart buttonBox showAnswerButton Gtk.PackGrow 0
+  
+  explanationButton <- Gtk.buttonNewWithLabel (pack "Объяснение")
+  Gtk.boxPackStart buttonBox explanationButton Gtk.PackGrow 0
+  
+  resetButton <- Gtk.buttonNewWithLabel (pack "Сброс")
+  Gtk.boxPackStart buttonBox resetButton Gtk.PackGrow 0
+  
+  -- Обработчик отрисовки с использованием Cairo
+  Gtk.on drawingArea Gtk.draw $ do
+    state <- liftIO $ readIORef appStateRef
+    drawCats state
+
+  -- Функция для отрисовки кошек
+  let drawCats state = do
+        -- Устанавливаем белый фон
+        Cairo.setSourceRGB 1 1 1
+        Cairo.paint
+        
+        -- Рисуем комнату
+        Cairo.setSourceRGB 0.7 0.7 0.9  -- Светло-синий для комнаты
+        Cairo.rectangle 50 50 300 200
+        Cairo.fillPreserve
+        Cairo.setSourceRGB 0.3 0.3 0.5  -- Темно-синий для границ
+        Cairo.setLineWidth 2
+        Cairo.stroke
+        
+        -- Рисуем углы комнаты
+        let corners = [(50, 50), (350, 50), (350, 250), (50, 250)]
+        
+        -- Рисуем кошек в углах
+        Cairo.setSourceRGB 0.9 0.6 0.1  -- Оранжевый для кошек
+        mapM_ (drawCat (currentAnswer state > 0)) corners
+        
+        -- Если показан ответ, рисуем дополнительных кошек на хвостах
+        when (currentAnswer state == totalCats) $ do
+          let tailPositions = [(120, 120), (280, 120), (280, 180), (120, 180)]
+          mapM_ (drawCat True) tailPositions
+
+  -- Функция для рисования кошки
+  let drawCat visible (x, y) = when visible $ do
+        -- Тело кошки (круг)
+        Cairo.setSourceRGB 0.9 0.6 0.1  -- Оранжевый
+        Cairo.arc (fromIntegral x) (fromIntegral y) 15 0 (2 * pi)
+        Cairo.fill
+        
+        -- Уши
+        Cairo.setSourceRGB 0.9 0.6 0.1  -- Оранжевый
+        Cairo.moveTo (fromIntegral x - 10) (fromIntegral y - 10)
+        Cairo.lineTo (fromIntegral x - 5) (fromIntegral y - 20)
+        Cairo.lineTo (fromIntegral x) (fromIntegral y - 10)
+        Cairo.moveTo (fromIntegral x + 10) (fromIntegral y - 10)
+        Cairo.lineTo (fromIntegral x + 5) (fromIntegral y - 20)
+        Cairo.lineTo (fromIntegral x) (fromIntegral y - 10)
+        Cairo.stroke
+        
+        -- Глаза
+        Cairo.setSourceRGB 0 0 0  -- Черный
+        Cairo.arc (fromIntegral x - 5) (fromIntegral y - 5) 2 0 (2 * pi)
+        Cairo.fill
+        Cairo.arc (fromIntegral x + 5) (fromIntegral y - 5) 2 0 (2 * pi)
+        Cairo.fill
+        
+        -- Нос
+        Cairo.moveTo (fromIntegral x) (fromIntegral y)
+        Cairo.lineTo (fromIntegral x - 3) (fromIntegral y + 3)
+        Cairo.lineTo (fromIntegral x + 3) (fromIntegral y + 3)
+        Cairo.closePath
+        Cairo.fill
+        
+        -- Усы
+        Cairo.setSourceRGB 0 0 0  -- Черный
+        Cairo.moveTo (fromIntegral x) (fromIntegral y + 2)
+        Cairo.lineTo (fromIntegral x - 15) (fromIntegral y)
+        Cairo.moveTo (fromIntegral x) (fromIntegral y + 2)
+        Cairo.lineTo (fromIntegral x - 15) (fromIntegral y + 5)
+        Cairo.moveTo (fromIntegral x) (fromIntegral y + 2)
+        Cairo.lineTo (fromIntegral x + 15) (fromIntegral y)
+        Cairo.moveTo (fromIntegral x) (fromIntegral y + 2)
+        Cairo.lineTo (fromIntegral x + 15) (fromIntegral y + 5)
+        Cairo.stroke
+
+  -- Функция для обновления интерфейса
+  let updateUI = do
+        state <- readIORef appStateRef
+        let answerText = case currentAnswer state of
+              0 -> "Нажмите кнопку, чтобы узнать ответ"
+              n -> "Ответ: " ++ show n ++ " кошек"
+        
+        Gtk.set answerLabel [Gtk.labelLabel := pack answerText]
+        
+        if showExplanation state
+          then Gtk.set explanationLabel [Gtk.labelLabel := pack explanationText]
+          else Gtk.set explanationLabel [Gtk.labelLabel := ""]
+        
+        Gtk.widgetQueueDraw drawingArea
+
+  -- Описание задачи
+  let taskDescription = "В комнате четыре угла. В каждом углу сидит кошка. \
+                        \Напротив каждой кошки по три кошки. \
+                        \На хвосте каждой кошки по одной кошке. \
+                        \Сколько же всего кошек в комнате?"
+
+  -- Текст объяснения
+  let explanationText = "ОБЪЯСНЕНИЕ:\n\n\
+                        \1. В комнате 4 угла → 4 кошки\n\
+                        \2. Напротив каждой кошки по 3 кошки: \n   \
+                        \Каждая кошка видит трёх других в противоположных углах\n\
+                        \3. На хвосте каждой кошки по одной кошке: \n   \
+                        \Это означает, что каждая кошка сидит на своём хвосте\n\n\
+                        \ИТОГО: 4 кошки"
+
+  -- Обработка кнопки показа ответа
+  Gtk.on showAnswerButton Gtk.buttonActivated $ do
+    modifyIORef appStateRef (\s -> s { currentAnswer = totalCats })
+    updateUI
+
+  -- Обработка кнопки объяснения
+  Gtk.on explanationButton Gtk.buttonActivated $ do
+    modifyIORef appStateRef (\s -> s { showExplanation = not (showExplanation s) })
+    updateUI
+
+  -- Обработка кнопки сброса
+  Gtk.on resetButton Gtk.buttonActivated $ do
+    writeIORef appStateRef initialAppState
+    updateUI
+
+  -- Обработка закрытия окна
+  Gtk.on window Gtk.objectDestroy Gtk.mainQuit
+
+  -- Отображение окна и запуск главного цикла
+  Gtk.widgetShowAll window
+  Gtk.mainGUI
+
+-- Главная функция
+main :: IO ()
+main = do
+  appStateRef <- newIORef initialAppState
+  createWindow appStateRef

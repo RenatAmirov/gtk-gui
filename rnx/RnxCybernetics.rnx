@@ -1,0 +1,283 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main where
+
+import qualified Graphics.UI.Gtk as Gtk
+import Graphics.UI.Gtk (set, on, AttrOp((:=)))
+import qualified Graphics.Rendering.Cairo as Cairo
+import Data.IORef
+import Control.Monad (void, when)
+import Control.Monad.IO.Class (liftIO)
+import Data.Text (Text, pack)
+import Data.List (intersperse)
+
+-- = Данные о кибернетике =
+
+-- Состояние приложения
+data AppState = AppState
+  { currentPage :: Int          -- Текущая страница
+  , darkMode :: Bool           -- Темный режим
+  } deriving (Show)
+
+-- Информация о кибернетике
+cyberneticsInfo :: [(String, String)]
+cyberneticsInfo =
+  [ ("Что такое Кибернетика?",
+     "Кибернетика — это наука об общих закономерностях процессов управления и передачи информации в различных системах, будь то машины, живые организмы или общества.\n\n" ++
+     "Основоположником кибернетики считается американский математик Норберт Винер, который в 1948 году опубликовал книгу «Кибернетика, или управление и связь в животном и машине»."),
+    
+    ("Основные понятия",
+     "• Обратная связь - ключевое понятие кибернетики\n" ++
+     "• Управление и регулирование\n" ++
+     "• Информация и её передача\n" ++
+     "• Системы и их организация\n" ++
+     "• Гомеостаз - поддержание равновесия\n\n" ++
+     "Кибернетика изучает, как системы получают, хранят, обрабатывают и используют информацию для управления своим поведением."),
+    
+    ("История развития",
+     "1940-е: Норберт Винер формулирует основы кибернетики\n" ++
+     "1950-е: Развитие теории информации (Клод Шеннон)\n" ++
+     "1960-е: Применение в биологии и психологии\n" ++
+     "1970-е: Кибернетика второго порядка (рефлексивные системы)\n" ++
+     "1980-е: Влияние на развитие искусственного интеллекта\n" ++
+     "1990-е: Интернет и глобальные информационные системы\n" ++
+     "2000-е: Социальные сети и сложные адаптивные системы"),
+    
+    ("Области применения",
+     "✓ Технические системы: робототехника, автоматизация\n" ++
+     "✓ Биологические системы: нейронауки, генетика\n" ++
+     "✓ Социальные системы: экономика, менеджмент\n" ++
+     "✓ Информационные технологии: сети, базы данных\n" ++
+     "✓ Когнитивные науки: искусственный интеллект\n" ++
+     "✓ Экология: моделирование экосистем"),
+    
+    ("Известные ученые",
+     "• Норберт Винер - основатель кибернетики\n" ++
+     "• Клод Шеннон - теория информации\n" ++
+     "• Джон фон Нейман - теория автоматов\n" ++
+     "• Уильям Росс Эшби - закон необходимого разнообразия\n" ++
+     "• Стаффорд Бир - управленческая кибернетика\n" ++
+     "• Хайнц фон Фёрстер - кибернетика второго порядка\n" ++
+     "• Грегори Бейтсон - экология разума"),
+    
+    ("Современное значение",
+     "В современном мире кибернетические принципы лежат в основе:\n\n" ++
+     "• Искусственного интеллекта и машинного обучения\n" ++
+     "• Интернета вещей (IoT)\n" ++
+     "• Киберфизических систем\n" ++
+     "• Умных городов и инфраструктур\n" ++
+     "• Бионики и биомиметики\n" ++
+     "• Социальных сетей и цифровой экономики\n\n" ++
+     "Кибернетика продолжает влиять на развитие технологий и нашего понимания сложных систем.")
+  ]
+
+-- Начальное состояние приложения
+initialAppState :: AppState
+initialAppState = AppState
+  { currentPage = 0
+  , darkMode = False
+  }
+
+-- = Графический интерфейс GTK =
+
+-- Создание главного окна
+createWindow :: IORef AppState -> IO ()
+createWindow appStateRef = do
+  Gtk.initGUI
+  
+  -- Создание главного окна
+  window <- Gtk.windowNew
+  Gtk.set window 
+    [ Gtk.windowTitle := (pack "Кибернетика - Образовательное приложение")
+    , Gtk.containerBorderWidth := 15
+    , Gtk.windowDefaultWidth := 800
+    , Gtk.windowDefaultHeight := 600
+    ]
+  
+  -- Главный вертикальный контейнер
+  mainBox <- Gtk.vBoxNew False 10
+  Gtk.containerAdd window mainBox
+  
+  -- Контейнер для заголовка с выравниванием по центру
+  titleBox <- Gtk.hBoxNew False 0
+  Gtk.boxPackStart mainBox titleBox Gtk.PackNatural 0
+  
+  -- Распорка слева
+  leftSpacer <- Gtk.labelNew (Just (pack ""))
+  Gtk.boxPackStart titleBox leftSpacer Gtk.PackGrow 0
+  
+  -- Заголовок приложения
+  titleLabel <- Gtk.labelNew (Just (pack "КИБЕРНЕТИКА"))
+  Gtk.boxPackStart titleBox titleLabel Gtk.PackNatural 0
+  
+  -- Распорка справа
+  rightSpacer <- Gtk.labelNew (Just (pack ""))
+  Gtk.boxPackStart titleBox rightSpacer Gtk.PackGrow 0
+  
+  -- Разделитель
+  separator <- Gtk.hSeparatorNew
+  Gtk.boxPackStart mainBox separator Gtk.PackNatural 0
+  
+  -- Метка для отображения названия текущей страницы
+  pageTitleLabel <- Gtk.labelNew (Just ("" :: String))
+  Gtk.boxPackStart mainBox pageTitleLabel Gtk.PackNatural 0
+  
+  -- Область для отображения контента с прокруткой
+  scrolledWindow <- Gtk.scrolledWindowNew Nothing Nothing
+  Gtk.set scrolledWindow [Gtk.scrolledWindowHscrollbarPolicy := Gtk.PolicyAutomatic,
+                         Gtk.scrolledWindowVscrollbarPolicy := Gtk.PolicyAutomatic]
+  Gtk.boxPackStart mainBox scrolledWindow Gtk.PackGrow 0
+  
+  -- Текстовая область для контента
+  textView <- Gtk.textViewNew
+  Gtk.set textView [Gtk.textViewEditable := False, 
+                   Gtk.textViewCursorVisible := False,
+                   Gtk.textViewWrapMode := Gtk.WrapWord]
+  Gtk.scrolledWindowAddWithViewport scrolledWindow textView
+  
+  -- Получаем текстовый буфер
+  textBuffer <- Gtk.textViewGetBuffer textView
+  
+  -- Горизонтальный контейнер для кнопок навигации
+  navBox <- Gtk.hBoxNew True 10
+  Gtk.boxPackStart mainBox navBox Gtk.PackNatural 0
+  
+  -- Кнопки навигации
+  prevButton <- Gtk.buttonNewWithLabel (pack "Назад")
+  Gtk.boxPackStart navBox prevButton Gtk.PackGrow 0
+  
+  nextButton <- Gtk.buttonNewWithLabel (pack "Вперед")
+  Gtk.boxPackStart navBox nextButton Gtk.PackGrow 0
+  
+  -- Метка для отображения номера страницы
+  pageLabel <- Gtk.labelNew (Just (pack "1/6"))
+  Gtk.boxPackStart navBox pageLabel Gtk.PackNatural 0
+  
+  -- Горизонтальный контейнер для дополнительных кнопок
+  controlBox <- Gtk.hBoxNew True 10
+  Gtk.boxPackStart mainBox controlBox Gtk.PackNatural 0
+  
+  -- Кнопка переключения темы
+  themeButton <- Gtk.buttonNewWithLabel (pack "Темная тема")
+  Gtk.boxPackStart controlBox themeButton Gtk.PackGrow 0
+  
+  -- Кнопка с информацией о приложении
+  aboutButton <- Gtk.buttonNewWithLabel (pack "О программе")
+  Gtk.boxPackStart controlBox aboutButton Gtk.PackGrow 0
+  
+  -- Функция для обновления отображаемого контента
+  let updateContent = do
+        state <- readIORef appStateRef
+        let (title, content) = cyberneticsInfo !! currentPage state
+        
+        -- Обновляем заголовок страницы
+        Gtk.set pageTitleLabel [Gtk.labelLabel := pack title]
+        
+        -- Обновляем содержимое
+        Gtk.textBufferSetText textBuffer (pack content)
+        
+        -- Обновляем номер страницы
+        Gtk.set pageLabel [Gtk.labelLabel := pack (show (currentPage state + 1) ++ "/" ++ show (length cyberneticsInfo))]
+        
+        -- Обновляем состояние кнопок
+        Gtk.widgetSetSensitive prevButton (currentPage state > 0)
+        Gtk.widgetSetSensitive nextButton (currentPage state < length cyberneticsInfo - 1)
+  
+  -- Обработка кнопки "Назад"
+  Gtk.on prevButton Gtk.buttonActivated $ do
+    modifyIORef appStateRef (\s -> s { currentPage = max 0 (currentPage s - 1) })
+    updateContent
+  
+  -- Обработка кнопки "Вперед"
+  Gtk.on nextButton Gtk.buttonActivated $ do
+    modifyIORef appStateRef (\s -> s { currentPage = min (length cyberneticsInfo - 1) (currentPage s + 1) })
+    updateContent
+  
+  -- Обработка кнопки переключения темы
+  Gtk.on themeButton Gtk.buttonActivated $ do
+    modifyIORef appStateRef (\s -> s { darkMode = not (darkMode s) })
+    state <- readIORef appStateRef
+    Gtk.set themeButton [Gtk.buttonLabel := if darkMode state then pack "Светлая тема" else pack "Темная тема"]
+  
+  -- Обработка кнопки "О программе"
+  Gtk.on aboutButton Gtk.buttonActivated $ do
+    -- Создаем простое диалоговое окно
+    dialog <- Gtk.dialogNew
+    Gtk.set dialog [Gtk.windowTitle := pack "О программе"]
+    
+    -- Создаем контейнер для содержимого
+    contentBox <- Gtk.vBoxNew False 10
+    Gtk.containerSetBorderWidth contentBox 20
+    
+    -- Создаем элементы интерфейса
+    nameLabel <- Gtk.labelNew (Just (pack "Кибернетика - Образовательное приложение"))
+    versionLabel <- Gtk.labelNew (Just (pack "Версия 1.0"))
+    descLabel <- Gtk.labelNew (Just (pack "Интерактивное образовательное приложение,\nрассказывающее о науке кибернетике"))
+    copyrightLabel <- Gtk.labelNew (Just (pack "© 2024 Образовательный проект"))
+    
+    -- Упаковываем элементы
+    Gtk.boxPackStart contentBox nameLabel Gtk.PackNatural 0
+    Gtk.boxPackStart contentBox versionLabel Gtk.PackNatural 0
+    Gtk.boxPackStart contentBox descLabel Gtk.PackNatural 0
+    Gtk.boxPackStart contentBox copyrightLabel Gtk.PackNatural 0
+    
+    -- Добавляем кнопку закрытия
+    closeButton <- Gtk.buttonNewWithLabel (pack "Закрыть")
+    Gtk.boxPackStart contentBox closeButton Gtk.PackNatural 0
+    
+    -- Добавляем контейнер в диалог
+    dialogContentArea <- Gtk.castToBox <$> Gtk.dialogGetContentArea dialog
+    Gtk.boxPackStart dialogContentArea contentBox Gtk.PackNatural 0
+    
+    -- Показываем все элементы
+    Gtk.widgetShowAll dialog
+    
+    -- Обработка закрытия диалога
+    Gtk.on closeButton Gtk.buttonActivated $ do
+      Gtk.widgetDestroy dialog
+    
+    -- Запускаем диалог
+    void $ Gtk.dialogRun dialog
+    Gtk.widgetDestroy dialog
+  
+  -- Обработка нажатий клавиш
+  Gtk.on window Gtk.keyPressEvent $ do
+    keyVal <- Gtk.eventKeyVal
+    case keyVal of
+      65361 -> do -- Стрелка влево
+        liftIO $ do
+          modifyIORef appStateRef (\s -> s { currentPage = max 0 (currentPage s - 1) })
+          updateContent
+        return True
+      
+      65363 -> do -- Стрелка вправо
+        liftIO $ do
+          modifyIORef appStateRef (\s -> s { currentPage = min (length cyberneticsInfo - 1) (currentPage s + 1) })
+          updateContent
+        return True
+      
+      100 -> do -- 'D' (переключение темы)
+        liftIO $ do
+          modifyIORef appStateRef (\s -> s { darkMode = not (darkMode s) })
+          state <- readIORef appStateRef
+          Gtk.set themeButton [Gtk.buttonLabel := if darkMode state then pack "Светлая тема" else pack "Темная тема"]
+        return True
+      
+      _ -> return False
+  
+  -- Инициализация контента
+  updateContent
+  
+  -- Обработка закрытия окна
+  Gtk.on window Gtk.objectDestroy Gtk.mainQuit
+  
+  -- Отображение окна и запуск главного цикла
+  Gtk.widgetShowAll window
+  Gtk.mainGUI
+
+-- Главная функция
+main :: IO ()
+main = do
+  let initialState = initialAppState
+  appStateRef <- newIORef initialState
+  createWindow appStateRef
