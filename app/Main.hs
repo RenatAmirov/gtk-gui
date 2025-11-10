@@ -10,7 +10,7 @@ import Data.Text (Text, pack, unpack)
 import System.Process (readProcess)
 import Network.Socket (getAddrInfo, defaultHints, addrAddress, addrFlags, AddrInfo(..))
 import Network.Socket (AddrInfoFlag(AI_CANONNAME), SocketType(Stream))
-import Control.Exception (catch, SomeException)  -- Added import
+import System.IO.Error (catchIOError)
 
 -- Упрощенное разрешение имени хоста
 resolveHostname :: String -> IO (Either String [String])
@@ -41,12 +41,8 @@ getLocalIPs = do
         else return $ take 1 allResults  -- Возвращаем первый успешный результат
   where
     tryCommand cmd args = do
-        result <- catch (readProcess cmd args "") (\_ -> return "")
+        result <- catchIOError (readProcess cmd args "") (\_ -> return "")
         return $ if null result then "" else cmd ++ ": " ++ take 100 result
-
--- Универсальный обработчик исключений (simplified version)
-catchAny :: IO a -> (SomeException -> IO a) -> IO a
-catchAny = catch
 
 -- Основной интерфейс
 createWindow :: IO ()
@@ -137,7 +133,7 @@ createWindow = do
   let updateResults text = do
         Gtk.textBufferSetText resultsBuffer (pack text)
         Gtk.statusbarPop statusbar statusContext
-        Gtk.statusbarPush statusbar statusContext (pack "Готово")
+        void $ Gtk.statusbarPush statusbar statusContext (pack "Готово")
   
   -- Обработчик кнопки разрешения имени
   _ <- Gtk.on resolveButton Gtk.buttonActivated $ do
@@ -145,7 +141,7 @@ createWindow = do
     let hostname = unpack hostnameText
     
     Gtk.statusbarPop statusbar statusContext
-    _ <- Gtk.statusbarPush statusbar statusContext (pack ("Разрешение " ++ hostname ++ "..."))
+    void $ Gtk.statusbarPush statusbar statusContext (pack ("Разрешение " ++ hostname ++ "..."))
     
     result <- resolveHostname hostname
     case result of
@@ -160,25 +156,25 @@ createWindow = do
   -- Обработчик кнопки локальных IP
   _ <- Gtk.on localIPsButton Gtk.buttonActivated $ do
     Gtk.statusbarPop statusbar statusContext
-    _ <- Gtk.statusbarPush statusbar statusContext (pack "Получение локальных IP-адресов...")
+    void $ Gtk.statusbarPush statusbar statusContext (pack "Получение локальных IP-адресов...")
     
     localIPs <- getLocalIPs
     let resultText = "Локальные IP-адреса:\n" ++ unlines (map ("  - " ++) localIPs)
     updateResults resultText
     Gtk.statusbarPop statusbar statusContext
-    Gtk.statusbarPush statusbar statusContext (pack "Локальные IP-адреса получены")
+    void $ Gtk.statusbarPush statusbar statusContext (pack "Локальные IP-адреса получены")
   
   -- Обработчик кнопки очистки
   _ <- Gtk.on clearButton Gtk.buttonActivated $ do
-    Gtk.textBufferSetText resultsBuffer ""
+    Gtk.textBufferSetText resultsBuffer (pack "")  -- Fixed: use pack for empty string
     Gtk.statusbarPop statusbar statusContext
-    Gtk.statusbarPush statusbar statusContext (pack "Очищено")
+    void $ Gtk.statusbarPush statusbar statusContext (pack "Очищено")
   
   -- Обработчик закрытия окна
   _ <- Gtk.on window Gtk.objectDestroy Gtk.mainQuit
   
   -- Инициализация
-  _ <- updateResults ("Добро пожаловать в DNS Resolver!\n\n" ++
+  updateResults ("Добро пожаловать в DNS Resolver!\n\n" ++
                 "Используйте:\n" ++
                 "- 'Разрешить имя' для поиска IP по имени хоста\n" ++
                 "- 'Мои IP-адреса' для просмотра локальных адресов\n" ++
