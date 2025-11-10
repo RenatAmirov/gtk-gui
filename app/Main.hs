@@ -4,364 +4,192 @@ module Main where
 
 import qualified Graphics.UI.Gtk as Gtk
 import Graphics.UI.Gtk (set, on, AttrOp((:=)))
-import qualified Graphics.Rendering.Cairo as Cairo
-import Data.IORef
-import Control.Monad (void, when)
+import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
-import Data.Text (Text, pack)
+import Data.Text (Text, pack, unpack)
+import System.Process (readProcess)
+import Network.Socket (getAddrInfo, defaultHints, addrAddress, addrFlags, AddrInfo(..))
+import Network.Socket (AddrInfoFlag(AI_CANONNAME), SocketType(Stream))
 
--- = Game Logic =
+-- Упрощенное разрешение имени хоста
+resolveHostname :: String -> IO (Either String [String])
+resolveHostname hostname = do
+    let hints = defaultHints { 
+          addrFlags = [AI_CANONNAME],
+          addrSocketType = Stream 
+        }
+    
+    addrinfos <- getAddrInfo (Just hints) (Just hostname) Nothing
+    
+    let addresses = map (show . addrAddress) addrinfos
+    if null addresses
+        then return $ Left "Не удалось разрешить имя хоста"
+        else return $ Right addresses
 
--- Car state
-data CarState = CarState
-  { carAngle :: Double      -- Angle on circular track (radians)
-  , carSpeed :: Double      -- Current speed
-  , carMaxSpeed :: Double   -- Maximum speed
-  , carAcceleration :: Double -- Acceleration rate
-  , carDeceleration :: Double -- Deceleration rate
-  , carTurningSpeed :: Double -- Turning speed
-  } deriving (Show)
-
--- Game state
-data GameState = GameState
-  { car :: CarState
-  , trackRadius :: Double
-  , centerX :: Double
-  , centerY :: Double
-  , gamePaused :: Bool
-  } deriving (Show)
-
--- Initial game state
-initialGameState :: GameState
-initialGameState = GameState
-  { car = CarState
-      { carAngle = 0
-      , carSpeed = 0
-      , carMaxSpeed = 0.1
-      , carAcceleration = 0.005
-      , carDeceleration = 0.01
-      , carTurningSpeed = 0.03
-      }
-  , trackRadius = 150
-  , centerX = 200
-  , centerY = 200
-  , gamePaused = False
-  }
-
--- Update car position based on speed
-updateCarPosition :: CarState -> CarState
-updateCarPosition carState = carState { carAngle = newAngle }
+-- Получение локальных IP через системные команды
+getLocalIPs :: IO [String]
+getLocalIPs = do
+    -- Попробуем разные системные команды для получения IP
+    result1 <- tryCommand "hostname" ["-I"]  -- Linux
+    result2 <- tryCommand "ipconfig" ["/all"]  -- Windows
+    result3 <- tryCommand "ifconfig" ["-a"]   -- macOS/Unix
+    
+    let allResults = filter (not . null) [result1, result2, result3]
+    if null allResults
+        then return ["Не удалось определить локальные IP-адреса"]
+        else return $ take 1 allResults  -- Возвращаем первый успешный результат
   where
-    currentAngle = carAngle carState
-    speed = carSpeed carState
-    newAngle = currentAngle + speed
-    -- Keep angle within [0, 2π]
-    normalizedAngle = if newAngle >= 2 * pi then newAngle - 2 * pi else newAngle
+    tryCommand cmd args = do
+        result <- catchAny (readProcess cmd args "") (\_ -> return "")
+        return $ if null result then "" else cmd ++ ": " ++ take 100 result  -- Ограничиваем длину
 
--- Apply acceleration
-accelerate :: CarState -> CarState
-accelerate carState = carState { carSpeed = min (carMaxSpeed carState) newSpeed }
-  where
-    currentSpeed = carSpeed carState
-    acceleration = carAcceleration carState
-    newSpeed = currentSpeed + acceleration
+        
+-- Универсальный обработчик исключений
+catchAny :: IO a -> (SomeException -> IO a) -> IO a
+catchAny = Control.Exception.catch
 
--- Apply deceleration/braking
-decelerate :: CarState -> CarState
-decelerate carState = carState { carSpeed = max 0 newSpeed }
-  where
-    currentSpeed = carSpeed carState
-    decel = carDeceleration carState
-    newSpeed = currentSpeed - decel
 
--- Turn left (counter-clockwise)
-turnLeft :: CarState -> CarState
-turnLeft carState = carState { carAngle = newAngle }
-  where
-    currentAngle = carAngle carState
-    turningSpeed = carTurningSpeed carState
-    newAngle = if currentAngle - turningSpeed < 0 
-               then 2 * pi - turningSpeed 
-               else currentAngle - turningSpeed
-
--- Turn right (clockwise)
-turnRight :: CarState -> CarState
-turnRight carState = carState { carAngle = newAngle }
-  where
-    currentAngle = carAngle carState
-    turningSpeed = carTurningSpeed carState
-    newAngle = if currentAngle + turningSpeed >= 2 * pi 
-               then turningSpeed 
-               else currentAngle + turningSpeed
-
--- Apply friction when no input
-applyFriction :: CarState -> CarState
-applyFriction carState
-  | currentSpeed > 0 = carState { carSpeed = max 0 (currentSpeed - friction) }
-  | otherwise = carState
-  where
-    currentSpeed = carSpeed carState
-    friction = 0.002
-
--- Update game state
-updateGame :: GameState -> GameState
-updateGame state
-  | gamePaused state = state
-  | otherwise = state { car = newCarState }
-  where
-    currentCar = car state
-    newCarState = applyFriction $ updateCarPosition currentCar
-
--- Calculate car position on track
-getCarPosition :: GameState -> (Double, Double)
-getCarPosition state = (x, y)
-  where
-    radius = trackRadius state
-    angle = carAngle (car state)
-    x = centerX state + radius * cos angle
-    y = centerY state + radius * sin angle
-
--- Calculate car direction vector
-getCarDirection :: GameState -> (Double, Double)
-getCarDirection state = (dx, dy)
-  where
-    angle = carAngle (car state)
-    -- Car faces tangent to the circle (90 degrees offset)
-    dx = -sin angle
-    dy = cos angle
-
--- = GTK Interface =
-
-createWindow :: IORef GameState -> IO ()
-createWindow gameStateRef = do
+-- Основной интерфейс
+createWindow :: IO ()
+createWindow = do
   Gtk.initGUI
   
-  -- Create main window [citation:1][citation:9]
+  -- Создание главного окна
   window <- Gtk.windowNew
   Gtk.set window 
-    [ Gtk.windowTitle := (pack "Круговая трасса - Haskell/GTK+3")
-    , Gtk.containerBorderWidth := 10
+    [ Gtk.windowTitle := (pack "DNS Resolver - Haskell/GTK+3")
+    , Gtk.containerBorderWidth := 15
     , Gtk.windowDefaultWidth := 500
-    , Gtk.windowDefaultHeight := 500
-    , Gtk.windowResizable := False
+    , Gtk.windowDefaultHeight := 400
     ]
   
-  -- Main vertical container
+  -- Главный вертикальный контейнер
   mainBox <- Gtk.vBoxNew False 10
   Gtk.containerAdd window mainBox
   
-  -- Info label
-  infoLabel <- Gtk.labelNew (Just (pack "Скорость: 0.00 | Угол: 0.00"))
-  Gtk.boxPackStart mainBox infoLabel Gtk.PackNatural 0
+  -- Заголовок
+  titleLabel <- Gtk.labelNew (Just (pack "Разрешение имен в локальной сети"))
+  Gtk.miscSetAlignment titleLabel 0 0.5
+  Gtk.boxPackStart mainBox titleLabel Gtk.PackNatural 5
   
-  -- Drawing area for the game
-  drawingArea <- Gtk.drawingAreaNew
-  Gtk.widgetSetSizeRequest drawingArea 400 400
-  Gtk.boxPackStart mainBox drawingArea Gtk.PackGrow 0
+  -- Область ввода
+  inputFrame <- Gtk.frameNew
+  Gtk.frameSetLabel inputFrame (pack "Ввод имени хоста")
+  Gtk.boxPackStart mainBox inputFrame Gtk.PackNatural 5
   
-  -- Status label
-  statusLabel <- Gtk.labelNew (Just (pack "Управление: Стрелки - движение, P - пауза, R - сброс"))
-  Gtk.boxPackStart mainBox statusLabel Gtk.PackNatural 0
+  inputBox <- Gtk.vBoxNew False 5
+  Gtk.containerSetBorderWidth inputBox 10
+  Gtk.containerAdd inputFrame inputBox
   
-  -- Button container
+  -- Поле ввода имени хоста
+  hostnameBox <- Gtk.hBoxNew False 5
+  Gtk.boxPackStart inputBox hostnameBox Gtk.PackNatural 0
+  
+  hostnameLabel <- Gtk.labelNew (Just (pack "Имя хоста:"))
+  Gtk.boxPackStart hostnameBox hostnameLabel Gtk.PackNatural 0
+  
+  hostnameEntry <- Gtk.entryNew
+  Gtk.entrySetText hostnameEntry (pack "localhost")
+  Gtk.boxPackStart hostnameBox hostnameEntry Gtk.PackGrow 0
+  
+  -- Кнопки
   buttonBox <- Gtk.hBoxNew True 10
-  Gtk.boxPackStart mainBox buttonBox Gtk.PackNatural 0
+  Gtk.boxPackStart inputBox buttonBox Gtk.PackNatural 5
   
-  -- Reset button
-  resetButton <- Gtk.buttonNewWithLabel (pack "Сброс")
-  Gtk.boxPackStart buttonBox resetButton Gtk.PackGrow 0
+  resolveButton <- Gtk.buttonNewWithLabel (pack "Разрешить имя")
+  Gtk.boxPackStart buttonBox resolveButton Gtk.PackGrow 0
   
-  -- Pause button
-  pauseButton <- Gtk.buttonNewWithLabel (pack "Пауза")
-  Gtk.boxPackStart buttonBox pauseButton Gtk.PackGrow 0
-
-  -- Drawing handler using Cairo [citation:3]
-  Gtk.on drawingArea Gtk.draw $ do
-    state <- liftIO $ readIORef gameStateRef
-    
-    -- Set white background
-    Cairo.setSourceRGB 1 1 1
-    Cairo.paint
-    
-    -- Draw track
-    drawTrack state
-    
-    -- Draw car
-    drawCar state
-    
-
-  -- Function to update UI
-  let updateUI = do
-        state <- readIORef gameStateRef
-        let currentCar = car state
-        let speed = carSpeed currentCar
-        let angle = carAngle currentCar
-        
-        Gtk.set infoLabel [Gtk.labelLabel := pack (
-          "Скорость: " ++ show (fromIntegral (round (speed * 1000)) / 1000.0 :: Double) ++ 
-          " | Угол: " ++ show (fromIntegral (round (angle * 1000)) / 1000.0 :: Double) ++ " рад.")]
-
-        let statusMsg = if gamePaused state 
-              then "ПАУЗА - Управление: Стрелки - движение, P - пауза, R - сброс"
-              else "Игра идет... Управление: Стрелки - движение, P - пауза, R - сброс"
-        
-        Gtk.set statusLabel [Gtk.labelLabel := pack statusMsg]
-        Gtk.widgetQueueDraw drawingArea 
-
-  -- Handle keyboard input [citation:7]
-  Gtk.on window Gtk.keyPressEvent $ do
-    keyVal <- Gtk.eventKeyVal
-    state <- liftIO $ readIORef gameStateRef
-    let currentCar = car state
-    
-    case keyVal of
-      -- Up arrow - accelerate
-      65362 -> do
-        liftIO $ do
-          modifyIORef gameStateRef (\s -> 
-            s { car = accelerate (car s) })
-          updateUI
-        return True
-      
-      -- Down arrow - decelerate
-      65364 -> do
-        liftIO $ do
-          modifyIORef gameStateRef (\s -> 
-            s { car = decelerate (car s) })
-          updateUI
-        return True
-      
-      -- Left arrow - turn left
-      65361 -> do
-        liftIO $ do
-          modifyIORef gameStateRef (\s -> 
-            s { car = turnLeft (car s) })
-          updateUI
-        return True
-      
-      -- Right arrow - turn right
-      65363 -> do
-        liftIO $ do
-          modifyIORef gameStateRef (\s -> 
-            s { car = turnRight (car s) })
-          updateUI
-        return True
-      
-      -- 'P' key - pause
-      112 -> do
-        liftIO $ do
-          modifyIORef gameStateRef (\s -> s { gamePaused = not (gamePaused s) })
-          updateUI
-        return True
-      
-      -- 'R' key - reset
-      114 -> do
-        liftIO $ do
-          writeIORef gameStateRef initialGameState
-          updateUI
-        return True
-      
-      _ -> return False
-
-  -- Reset button handler
-  Gtk.on resetButton Gtk.buttonActivated $ do
-    writeIORef gameStateRef initialGameState
-    updateUI
-
-  -- Pause button handler
-  Gtk.on pauseButton Gtk.buttonActivated $ do
-    modifyIORef gameStateRef (\s -> s { gamePaused = not (gamePaused s) })
-    updateUI
-
-  -- Game loop (update every 30ms) [citation:5]
-  let gameLoop :: IO Bool
-      gameLoop = do
-        state <- readIORef gameStateRef
-        let newState = updateGame state
-        writeIORef gameStateRef newState
-        updateUI
-        return True  -- Continue looping
+  localIPsButton <- Gtk.buttonNewWithLabel (pack "Мои IP-адреса")
+  Gtk.boxPackStart buttonBox localIPsButton Gtk.PackGrow 0
   
-  -- Start game loop
-  void $ Gtk.timeoutAdd gameLoop 30
-
-  -- Handle window close
-  Gtk.on window Gtk.objectDestroy Gtk.mainQuit
-
-  -- Show window and start main loop
+  clearButton <- Gtk.buttonNewWithLabel (pack "Очистить")
+  Gtk.boxPackStart buttonBox clearButton Gtk.PackGrow 0
+  
+  -- Область результатов
+  resultsFrame <- Gtk.frameNew
+  Gtk.frameSetLabel resultsFrame (pack "Результаты")
+  Gtk.boxPackStart mainBox resultsFrame Gtk.PackGrow 0
+  
+  resultsBox <- Gtk.vBoxNew False 5
+  Gtk.containerSetBorderWidth resultsBox 10
+  Gtk.containerAdd resultsFrame resultsBox
+  
+  -- Текстовое поле для результатов
+  resultsScrolled <- Gtk.scrolledWindowNew Nothing Nothing
+  Gtk.scrolledWindowSetShadowType resultsScrolled Gtk.ShadowIn
+  Gtk.scrolledWindowSetPolicy resultsScrolled Gtk.PolicyAutomatic Gtk.PolicyAutomatic
+  Gtk.boxPackStart resultsBox resultsScrolled Gtk.PackGrow 0
+  
+  resultsTextView <- Gtk.textViewNew
+  Gtk.textViewSetEditable resultsTextView False
+  Gtk.textViewSetCursorVisible resultsTextView False
+  Gtk.textViewSetWrapMode resultsTextView Gtk.WrapWord
+  Gtk.containerAdd resultsScrolled resultsTextView
+  
+  resultsBuffer <- Gtk.textViewGetBuffer resultsTextView
+  
+  -- Строка состояния
+  statusbar <- Gtk.statusbarNew
+  Gtk.boxPackStart mainBox statusbar Gtk.PackNatural 0
+  
+  statusContext <- Gtk.statusbarGetContextId statusbar (pack "main")
+  
+  -- Функция обновления результатов
+  let updateResults text = do
+        Gtk.textBufferSetText resultsBuffer (pack text)
+        Gtk.statusbarPop statusbar statusContext
+        Gtk.statusbarPush statusbar statusContext (pack "Готово")
+  
+  -- Обработчик кнопки разрешения имени
+  _ <- Gtk.on resolveButton Gtk.buttonActivated $ do
+    hostnameText <- Gtk.entryGetText hostnameEntry
+    let hostname = unpack hostnameText
+    
+    Gtk.statusbarPop statusbar statusContext
+    _ <- Gtk.statusbarPush statusbar statusContext (pack ("Разрешение " ++ hostname ++ "..."))
+    
+    result <- resolveHostname hostname
+    case result of
+      Right addrs -> do
+        let resultText = "IP-адреса для '" ++ hostname ++ "':\n" ++ 
+                        unlines (map ("  - " ++) addrs)
+        updateResults resultText
+      Left err -> do
+        let resultText = "Ошибка разрешения '" ++ hostname ++ "':\n  " ++ err
+        updateResults resultText
+  
+  -- Обработчик кнопки локальных IP
+  _ <- Gtk.on localIPsButton Gtk.buttonActivated $ do
+    Gtk.statusbarPop statusbar statusContext
+    _ <- Gtk.statusbarPush statusbar statusContext (pack "Получение локальных IP-адресов...")
+    
+    localIPs <- getLocalIPs
+    let resultText = (pack "Локальные IP-адреса:\n" ++ unlines (map ("  - " ++) localIPs))
+    _ <- updateResults resultText
+    Gtk.statusbarPop statusbar statusContext
+    Gtk.statusbarPush statusbar statusContext (pack "Локальные IP-адреса получены")
+  
+  -- Обработчик кнопки очистки
+  _ <- Gtk.on clearButton Gtk.buttonActivated $ do
+    Gtk.textBufferSetText resultsBuffer ""
+    Gtk.statusbarPop statusbar statusContext
+    Gtk.statusbarPush statusbar statusContext (pack "Очищено")
+  
+  -- Обработчик закрытия окна
+  _ <- Gtk.on window Gtk.objectDestroy Gtk.mainQuit
+  
+  -- Инициализация
+  _ <- updateResults (pack "Добро пожаловать в DNS Resolver!\n\n" ++
+                "Используйте:\n" ++
+                "- 'Разрешить имя' для поиска IP по имени хоста\n" ++
+                "- 'Мои IP-адреса' для просмотра локальных адресов\n" ++
+                "- 'Очистить' для очистки результатов\n\n" ++
+                "Примеры имен: localhost, google.com")
+  
+  -- Показ окна
   Gtk.widgetShowAll window
   Gtk.mainGUI
 
--- Draw the circular track
-drawTrack :: GameState -> Cairo.Render ()
-drawTrack state = do
-  -- Draw outer track boundary
-  Cairo.setSourceRGB 0.3 0.3 0.3
-  Cairo.setLineWidth 5
-  Cairo.arc (centerX state) (centerY state) (trackRadius state + 20) 0 (2 * pi)
-  Cairo.stroke
-  
-  -- Draw inner track boundary
-  Cairo.arc (centerX state) (centerY state) (trackRadius state - 20) 0 (2 * pi)
-  Cairo.stroke
-  
-  -- Draw track surface
-  Cairo.setSourceRGB 0.8 0.8 0.8
-  Cairo.arc (centerX state) (centerY state) (trackRadius state) 0 (2 * pi)
-  Cairo.fill
-  
-  -- Draw center point
-  Cairo.setSourceRGB 0.5 0.5 0.5
-  Cairo.arc (centerX state) (centerY state) 5 0 (2 * pi)
-  Cairo.fill
-
--- Draw the car
-drawCar :: GameState -> Cairo.Render ()
-drawCar state = do
-  let (carX, carY) = getCarPosition state
-  let (dirX, dirY) = getCarDirection state
-  let currentSpeed = carSpeed (car state)
-  
-  -- Save current transformation
-  Cairo.save
-  
-  -- Move to car position and rotate according to direction
-  Cairo.translate carX carY
-  Cairo.rotate (carAngle (car state) + pi/2)  -- +pi/2 to make car face forward
-  
-  -- Car color based on speed (red when fast, blue when slow)
-  let speedRatio = currentSpeed / carMaxSpeed (car state)
-  let red = 0.5 + speedRatio * 0.5
-  let green = 0.3
-  let blue = 0.7 - speedRatio * 0.5
-  
-  Cairo.setSourceRGB red green blue
-  
-  -- Draw car body (rectangle)
-  let carLength = 30
-  let carWidth = 15
-  Cairo.rectangle (-carWidth/2) (-carLength/2) carWidth carLength
-  Cairo.fill
-  
-  -- Draw car details
-  Cairo.setSourceRGB 0.1 0.1 0.1
-  Cairo.setLineWidth 2
-  
-  -- Windshield
-  Cairo.rectangle (-carWidth/2 + 2) (-carLength/2 + 5) (carWidth - 4) 8
-  Cairo.stroke
-  
-  -- Windows
-  Cairo.moveTo 0 (-carLength/2 + 13)
-  Cairo.lineTo 0 (carLength/2 - 5)
-  Cairo.stroke
-  
-  -- Restore transformation
-  Cairo.restore
-
--- Main function
+-- Главная функция
 main :: IO ()
-main = do
-  let initialState = initialGameState
-  gameStateRef <- newIORef initialState
-  createWindow gameStateRef
+main = createWindow

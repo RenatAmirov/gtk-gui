@@ -52,6 +52,8 @@ executables:
     - gtk-gui
     - random
     - cairo
+    - network
+    - process
 
 tests:
   gtk-gui-test:
