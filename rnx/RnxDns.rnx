@@ -4,51 +4,52 @@ module Main where
 
 import qualified Graphics.UI.Gtk as Gtk
 import Graphics.UI.Gtk (set, on, AttrOp((:=)))
-import qualified Graphics.Rendering.Cairo as Cairo
-import Data.IORef
-import Control.Monad (void, when)
+import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Data.Text (Text, pack, unpack)
+import System.Process (readProcess)
+import Network.Socket (getAddrInfo, defaultHints, addrAddress, addrFlags, AddrInfo(..))
+import Network.Socket (AddrInfoFlag(AI_CANONNAME), SocketType(Stream))
+import System.IO.Error (catchIOError)
 
--- DNS resolution imports
-import Network.DNS (lookupA, withResolver, makeResolvSeed, defaultResolvConf)
-import Network.Info (getNetworkInterfaces, ipv4, NetworkInterface)
-import Data.IP (IPv4)
-import qualified Data.ByteString.Char8 as BS
-
--- = DNS Resolution Logic =
-
--- Resolve hostname to IPv4 address
-resolveHostname :: String -> IO (Either String [IPv4])
+-- Упрощенное разрешение имени хоста
+resolveHostname :: String -> IO (Either String [String])
 resolveHostname hostname = do
-    rs <- makeResolvSeed defaultResolvConf
-    withResolver rs $ \resolver -> do
-        result <- lookupA resolver (BS.pack hostname)
-        case result of
-            Right addrs -> return $ Right addrs
-            Left err -> return $ Left (show err)
+    let hints = defaultHints { 
+          addrFlags = [AI_CANONNAME],
+          addrSocketType = Stream 
+        }
+    
+    addrinfos <- getAddrInfo (Just hints) (Just hostname) Nothing
+    
+    let addresses = map (show . addrAddress) addrinfos
+    if null addresses
+        then return $ Left "Не удалось разрешить имя хоста"
+        else return $ Right addresses
 
--- Get local machine IP addresses
+-- Получение локальных IP через системные команды
 getLocalIPs :: IO [String]
 getLocalIPs = do
-    interfaces <- getNetworkInterfaces
-    return $ map (show . ipv4) interfaces
+    -- Попробуем разные системные команды для получения IP
+    result1 <- tryCommand "hostname" ["-I"]  -- Linux
+    result2 <- tryCommand "ipconfig" ["/all"]  -- Windows
+    result3 <- tryCommand "ifconfig" ["-a"]   -- macOS/Unix
+    
+    let allResults = filter (not . null) [result1, result2, result3]
+    if null allResults
+        then return ["Не удалось определить локальные IP-адреса"]
+        else return $ take 1 allResults  -- Возвращаем первый успешный результат
+  where
+    tryCommand cmd args = do
+        result <- catchIOError (readProcess cmd args "") (\_ -> return "")
+        return $ if null result then "" else cmd ++ ": " ++ take 100 result
 
--- = GTK Interface =
-
--- Main application state
-data AppState = AppState
-  { currentHostname :: String
-  , resolutionResult :: String
-  , localIPs :: [String]
-  }
-
--- Create the main window
+-- Основной интерфейс
 createWindow :: IO ()
 createWindow = do
   Gtk.initGUI
   
-  -- Create main window
+  -- Создание главного окна
   window <- Gtk.windowNew
   Gtk.set window 
     [ Gtk.windowTitle := (pack "DNS Resolver - Haskell/GTK+3")
@@ -57,25 +58,25 @@ createWindow = do
     , Gtk.windowDefaultHeight := 400
     ]
   
-  -- Main vertical container
+  -- Главный вертикальный контейнер
   mainBox <- Gtk.vBoxNew False 10
   Gtk.containerAdd window mainBox
   
-  -- Title label
+  -- Заголовок
   titleLabel <- Gtk.labelNew (Just (pack "Разрешение имен в локальной сети"))
-  Gtk.set titleLabel [Gtk.labelAttributes := [Gtk.attrScale Gtk.scaleLarge]]
+  Gtk.miscSetAlignment titleLabel 0 0.5
   Gtk.boxPackStart mainBox titleLabel Gtk.PackNatural 5
   
-  -- Input section
+  -- Область ввода
   inputFrame <- Gtk.frameNew
   Gtk.frameSetLabel inputFrame (pack "Ввод имени хоста")
   Gtk.boxPackStart mainBox inputFrame Gtk.PackNatural 5
   
   inputBox <- Gtk.vBoxNew False 5
-  Gtk.containerBorderWidth := 10
+  Gtk.containerSetBorderWidth inputBox 10
   Gtk.containerAdd inputFrame inputBox
   
-  -- Hostname input
+  -- Поле ввода имени хоста
   hostnameBox <- Gtk.hBoxNew False 5
   Gtk.boxPackStart inputBox hostnameBox Gtk.PackNatural 0
   
@@ -86,32 +87,29 @@ createWindow = do
   Gtk.entrySetText hostnameEntry (pack "localhost")
   Gtk.boxPackStart hostnameBox hostnameEntry Gtk.PackGrow 0
   
-  -- Buttons box
+  -- Кнопки
   buttonBox <- Gtk.hBoxNew True 10
   Gtk.boxPackStart inputBox buttonBox Gtk.PackNatural 5
   
-  -- Resolve button
   resolveButton <- Gtk.buttonNewWithLabel (pack "Разрешить имя")
   Gtk.boxPackStart buttonBox resolveButton Gtk.PackGrow 0
   
-  -- Local IPs button
   localIPsButton <- Gtk.buttonNewWithLabel (pack "Мои IP-адреса")
   Gtk.boxPackStart buttonBox localIPsButton Gtk.PackGrow 0
   
-  -- Clear button
   clearButton <- Gtk.buttonNewWithLabel (pack "Очистить")
   Gtk.boxPackStart buttonBox clearButton Gtk.PackGrow 0
   
-  -- Results section
+  -- Область результатов
   resultsFrame <- Gtk.frameNew
   Gtk.frameSetLabel resultsFrame (pack "Результаты")
   Gtk.boxPackStart mainBox resultsFrame Gtk.PackGrow 0
   
   resultsBox <- Gtk.vBoxNew False 5
-  Gtk.containerBorderWidth := 10
+  Gtk.containerSetBorderWidth resultsBox 10
   Gtk.containerAdd resultsFrame resultsBox
   
-  -- Results text view
+  -- Текстовое поле для результатов
   resultsScrolled <- Gtk.scrolledWindowNew Nothing Nothing
   Gtk.scrolledWindowSetShadowType resultsScrolled Gtk.ShadowIn
   Gtk.scrolledWindowSetPolicy resultsScrolled Gtk.PolicyAutomatic Gtk.PolicyAutomatic
@@ -125,69 +123,68 @@ createWindow = do
   
   resultsBuffer <- Gtk.textViewGetBuffer resultsTextView
   
-  -- Status bar
+  -- Строка состояния
   statusbar <- Gtk.statusbarNew
   Gtk.boxPackStart mainBox statusbar Gtk.PackNatural 0
   
-  -- Initial state
-  initialLocalIPs <- getLocalIPs
-  let initialState = AppState 
-        { currentHostname = "localhost"
-        , resolutionResult = "Введите имя хоста и нажмите 'Разрешить имя'"
-        , localIPs = initialLocalIPs
-        }
-  
-  appStateRef <- newIORef initialState
   statusContext <- Gtk.statusbarGetContextId statusbar (pack "main")
   
-  -- Update results display
+  -- Функция обновления результатов
   let updateResults text = do
         Gtk.textBufferSetText resultsBuffer (pack text)
         Gtk.statusbarPop statusbar statusContext
-        Gtk.statusbarPush statusbar statusContext (pack "Готово")
+        void $ Gtk.statusbarPush statusbar statusContext (pack "Готово")
   
-  -- Handle resolve button click
-  Gtk.on resolveButton Gtk.buttonActivated $ do
+  -- Обработчик кнопки разрешения имени
+  _ <- Gtk.on resolveButton Gtk.buttonActivated $ do
     hostnameText <- Gtk.entryGetText hostnameEntry
     let hostname = unpack hostnameText
     
     Gtk.statusbarPop statusbar statusContext
-    Gtk.statusbarPush statusbar statusContext (pack ("Разрешение " ++ hostname ++ "..."))
+    void $ Gtk.statusbarPush statusbar statusContext (pack ("Разрешение " ++ hostname ++ "..."))
     
     result <- resolveHostname hostname
     case result of
       Right addrs -> do
-        let ipList = map show addrs
-            resultText = "IP-адреса для " ++ hostname ++ ":\n" ++ unlines (map ("  - " ++) ipList)
+        let resultText = "IP-адреса для '" ++ hostname ++ "':\n" ++ 
+                        unlines (map ("  - " ++) addrs)
         updateResults resultText
       Left err -> do
-        let resultText = "Ошибка разрешения " ++ hostname ++ ":\n  " ++ err
+        let resultText = "Ошибка разрешения '" ++ hostname ++ "':\n  " ++ err
         updateResults resultText
   
-  -- Handle local IPs button click
-  Gtk.on localIPsButton Gtk.buttonActivated $ do
+  -- Обработчик кнопки локальных IP
+  _ <- Gtk.on localIPsButton Gtk.buttonActivated $ do
+    Gtk.statusbarPop statusbar statusContext
+    void $ Gtk.statusbarPush statusbar statusContext (pack "Получение локальных IP-адресов...")
+    
     localIPs <- getLocalIPs
     let resultText = "Локальные IP-адреса:\n" ++ unlines (map ("  - " ++) localIPs)
     updateResults resultText
     Gtk.statusbarPop statusbar statusContext
-    Gtk.statusbarPush statusbar statusContext (pack "Показаны локальные IP-адреса")
+    void $ Gtk.statusbarPush statusbar statusContext (pack "Локальные IP-адреса получены")
   
-  -- Handle clear button click
-  Gtk.on clearButton Gtk.buttonActivated $ do
-    Gtk.textBufferSetText resultsBuffer ""
+  -- Обработчик кнопки очистки
+  _ <- Gtk.on clearButton Gtk.buttonActivated $ do
+    Gtk.textBufferSetText resultsBuffer (pack "")  -- Fixed: use pack for empty string
     Gtk.statusbarPop statusbar statusContext
-    Gtk.statusbarPush statusbar statusContext (pack "Очищено")
+    void $ Gtk.statusbarPush statusbar statusContext (pack "Очищено")
   
-  -- Handle window close
-  Gtk.on window Gtk.objectDestroy Gtk.mainQuit
+  -- Обработчик закрытия окна
+  _ <- Gtk.on window Gtk.objectDestroy Gtk.mainQuit
   
-  -- Initialize results
-  updateResults "Добро пожаловать в DNS Resolver!\n\nИспользуйте:\n- 'Разрешить имя' для поиска IP по имени хоста\n- 'Мои IP-адреса' для просмотра локальных адресов\n- 'Очистить' для очистки результатов"
+  -- Инициализация
+  updateResults ("Добро пожаловать в DNS Resolver!\n\n" ++
+                "Используйте:\n" ++
+                "- 'Разрешить имя' для поиска IP по имени хоста\n" ++
+                "- 'Мои IP-адреса' для просмотра локальных адресов\n" ++
+                "- 'Очистить' для очистки результатов\n\n" ++
+                "Примеры имен: localhost, google.com")
   
-  -- Show window and start main loop
+  -- Показ окна
   Gtk.widgetShowAll window
   Gtk.mainGUI
 
--- Main function
+-- Главная функция
 main :: IO ()
 main = createWindow
