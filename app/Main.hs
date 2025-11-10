@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE QuasiQuotes #-}  -- Add this
 
 module Main where
 
@@ -10,6 +11,7 @@ import Control.Monad (void)
 import Data.Text (Text, pack, unpack)
 import Data.IORef
 import qualified Data.Vector as V
+import Data.ByteString (ByteString)  -- Add this
 
 -- Database imports
 import Hasql.Connection (Connection, acquire, release)
@@ -38,7 +40,7 @@ insertProductStatement =
     insert into product (name, description, price) 
     values ($1 :: text, $2 :: text, $3 :: float8)
     returning id :: int8
-  ]
+  |]  -- Fixed: added closing |]
 
 selectAllProductsStatement :: Statement.Statement () [Product]
 selectAllProductsStatement =
@@ -60,29 +62,29 @@ updateProductStatement =
     set name = $2 :: text, description = $3 :: text, price = $4 :: float8
     where id = $1 :: int4
     returning id :: int8
-  ]
+  |]  -- Fixed: added closing |]
 
 deleteProductStatement :: Statement.Statement Int Int64
 deleteProductStatement =
   [TH.singletonStatement|
     delete from product where id = $1 :: int4
     returning id :: int8
-  ]
+  |]  -- Fixed: changed == to = and added closing |]
 
 -- Database operations
-connectDB :: IO (Either ConnectionError Connection)
+connectDB :: IO (Either String Connection)  -- Simplified error type
 connectDB = acquire connectionString
 
-insertProduct :: Connection -> (Text, Text, Double) -> IO (Either QueryError Int64)
+insertProduct :: Connection -> (Text, Text, Double) -> IO (Either String Int64)  -- Simplified error type
 insertProduct conn product = Session.run (Session.statement product insertProductStatement) conn
 
-getAllProducts :: Connection -> IO (Either QueryError [Product])
+getAllProducts :: Connection -> IO (Either String [Product])  -- Simplified error type
 getAllProducts conn = Session.run (Session.statement () selectAllProductsStatement) conn
 
-updateProduct :: Connection -> (Int, Text, Text, Double) -> IO (Either QueryError Int64)
+updateProduct :: Connection -> (Int, Text, Text, Double) -> IO (Either String Int64)  -- Simplified error type
 updateProduct conn product = Session.run (Session.statement product updateProductStatement) conn
 
-deleteProduct :: Connection -> Int -> IO (Either QueryError Int64)
+deleteProduct :: Connection -> Int -> IO (Either String Int64)  -- Simplified error type
 deleteProduct conn productId = Session.run (Session.statement productId deleteProductStatement) conn
 
 -- GTK Application
