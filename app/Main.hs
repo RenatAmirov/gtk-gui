@@ -29,7 +29,7 @@ data Product = Product
 
 -- Database connection settings
 connectionString :: ByteString
-connectionString = "host=localhost port=5432 user=postgres password=postgres dbname=products"
+connectionString = "host=localhost port=5432 user=myuser password=AStrongPassword dbname=mydatabase"
 
 -- SQL statements using Template Haskell for type safety
 insertProductStatement :: Statement.Statement (Text, Text, Double) Int64
@@ -38,7 +38,7 @@ insertProductStatement =
     insert into product (name, description, price) 
     values ($1 :: text, $2 :: text, $3 :: float8)
     returning id :: int8
-  |]
+  ]
 
 selectAllProductsStatement :: Statement.Statement () [Product]
 selectAllProductsStatement =
@@ -60,14 +60,14 @@ updateProductStatement =
     set name = $2 :: text, description = $3 :: text, price = $4 :: float8
     where id = $1 :: int4
     returning id :: int8
-  |]
+  ]
 
 deleteProductStatement :: Statement.Statement Int Int64
 deleteProductStatement =
   [TH.singletonStatement|
     delete from product where id = $1 :: int4
     returning id :: int8
-  |]
+  ]
 
 -- Database operations
 connectDB :: IO (Either ConnectionError Connection)
