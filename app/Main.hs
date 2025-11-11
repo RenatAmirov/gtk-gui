@@ -1,17 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE QuasiQuotes #-}  -- Add this
+{-# LANGUAGE QuasiQuotes #-}
 
 module Main where
 
 import qualified GI.Gtk as Gtk
 import Data.GI.Base
-import qualified Graphics.UI.Gtk as GtkOld
 import Control.Monad (void)
 import Data.Text (Text, pack, unpack)
 import Data.IORef
 import qualified Data.Vector as V
-import Data.ByteString (ByteString)  -- Add this
+import Data.ByteString (ByteString)
 
 -- Database imports
 import Hasql.Connection (Connection, acquire, release)
@@ -40,7 +39,7 @@ insertProductStatement =
     insert into product (name, description, price) 
     values ($1 :: text, $2 :: text, $3 :: float8)
     returning id :: int8
-  |]  -- Fixed: added closing |]
+  |]
 
 selectAllProductsStatement :: Statement.Statement () [Product]
 selectAllProductsStatement =
@@ -62,32 +61,32 @@ updateProductStatement =
     set name = $2 :: text, description = $3 :: text, price = $4 :: float8
     where id = $1 :: int4
     returning id :: int8
-  |]  -- Fixed: added closing |]
+  |]
 
 deleteProductStatement :: Statement.Statement Int Int64
 deleteProductStatement =
   [TH.singletonStatement|
     delete from product where id = $1 :: int4
     returning id :: int8
-  |]  -- Fixed: changed == to = and added closing |]
+  |]
 
 -- Database operations
-connectDB :: IO (Either String Connection)  -- Simplified error type
+connectDB :: IO (Either String Connection)
 connectDB = acquire connectionString
 
-insertProduct :: Connection -> (Text, Text, Double) -> IO (Either String Int64)  -- Simplified error type
+insertProduct :: Connection -> (Text, Text, Double) -> IO (Either String Int64)
 insertProduct conn product = Session.run (Session.statement product insertProductStatement) conn
 
-getAllProducts :: Connection -> IO (Either String [Product])  -- Simplified error type
+getAllProducts :: Connection -> IO (Either String [Product])
 getAllProducts conn = Session.run (Session.statement () selectAllProductsStatement) conn
 
-updateProduct :: Connection -> (Int, Text, Text, Double) -> IO (Either String Int64)  -- Simplified error type
+updateProduct :: Connection -> (Int, Text, Text, Double) -> IO (Either String Int64)
 updateProduct conn product = Session.run (Session.statement product updateProductStatement) conn
 
-deleteProduct :: Connection -> Int -> IO (Either String Int64)  -- Simplified error type
+deleteProduct :: Connection -> Int -> IO (Either String Int64)
 deleteProduct conn productId = Session.run (Session.statement productId deleteProductStatement) conn
 
--- GTK Application
+-- GTK Application using only GI.Gtk (newer binding)
 createMainWindow :: Connection -> IORef [Product] -> IO ()
 createMainWindow conn productsRef = do
   Gtk.init Nothing
@@ -134,45 +133,57 @@ createMainWindow conn productsRef = do
   #packStart buttonBox deleteButton True True 0
   #packStart buttonBox refreshButton True True 0
 
-  -- Products list
-  listStore <- GtkOld.listStoreNew [] :: IO (GtkOld.ListStore Product)
-  treeView <- GtkOld.treeViewNewWithModel listStore
+  -- Products list using TreeView with ListStore
+  listStore <- Gtk.listStoreNew []
+  treeView <- new Gtk.TreeView [ #model := listStore ]
 
   -- Create columns
-  idColumn <- GtkOld.treeViewColumnNew
-  nameColumn <- GtkOld.treeViewColumnNew
-  descColumn <- GtkOld.treeViewColumnNew
-  priceColumn <- GtkOld.treeViewColumnNew
+  idColumn <- new Gtk.TreeViewColumn []
+  nameColumn <- new Gtk.TreeViewColumn []
+  descColumn <- new Gtk.TreeViewColumn []
+  priceColumn <- new Gtk.TreeViewColumn []
 
-  GtkOld.treeViewColumnSetTitle idColumn "ID"
-  GtkOld.treeViewColumnSetTitle nameColumn "Name"
-  GtkOld.treeViewColumnSetTitle descColumn "Description"
-  GtkOld.treeViewColumnSetTitle priceColumn "Price"
+  #setTitle idColumn "ID"
+  #setTitle nameColumn "Name"
+  #setTitle descColumn "Description"
+  #setTitle priceColumn "Price"
 
   -- Cell renderers
-  idRenderer <- GtkOld.cellRendererTextNew
-  nameRenderer <- GtkOld.cellRendererTextNew
-  descRenderer <- GtkOld.cellRendererTextNew
-  priceRenderer <- GtkOld.cellRendererTextNew
+  idRenderer <- new Gtk.CellRendererText []
+  nameRenderer <- new Gtk.CellRendererText []
+  descRenderer <- new Gtk.CellRendererText []
+  priceRenderer <- new Gtk.CellRendererText []
 
-  GtkOld.cellLayoutPackStart idColumn idRenderer True
-  GtkOld.cellLayoutPackStart nameColumn nameRenderer True
-  GtkOld.cellLayoutPackStart descColumn descRenderer True
-  GtkOld.cellLayoutPackStart priceColumn priceRenderer True
+  #packStart idColumn idRenderer True
+  #packStart nameColumn nameRenderer True
+  #packStart descColumn descRenderer True
+  #packStart priceColumn priceRenderer True
 
-  GtkOld.cellLayoutSetAttributes idColumn idRenderer listStore $ \product ->
-    [ GtkOld.cellText := show (productId product) ]
-  GtkOld.cellLayoutSetAttributes nameColumn nameRenderer listStore $ \product ->
-    [ GtkOld.cellText := unpack (productName product) ]
-  GtkOld.cellLayoutSetAttributes descColumn descRenderer listStore $ \product ->
-    [ GtkOld.cellText := unpack (productDescription product) ]
-  GtkOld.cellLayoutSetAttributes priceColumn priceRenderer listStore $ \product ->
-    [ GtkOld.cellText := show (productPrice product) ]
+  -- Set up cell data functions
+  #setCellDataFunc idColumn idRenderer $ \cellLayout cellRenderer treeModel iter -> do
+    value <- Gtk.treeModelGetValue treeModel iter 0
+    let product = value
+    #set cellRenderer [ #text := show (productId product) ]
 
-  GtkOld.treeViewAppendColumn treeView idColumn
-  GtkOld.treeViewAppendColumn treeView nameColumn
-  GtkOld.treeViewAppendColumn treeView descColumn
-  GtkOld.treeViewAppendColumn treeView priceColumn
+  #setCellDataFunc nameColumn nameRenderer $ \cellLayout cellRenderer treeModel iter -> do
+    value <- Gtk.treeModelGetValue treeModel iter 0
+    let product = value
+    #set cellRenderer [ #text := unpack (productName product) ]
+
+  #setCellDataFunc descColumn descRenderer $ \cellLayout cellRenderer treeModel iter -> do
+    value <- Gtk.treeModelGetValue treeModel iter 0
+    let product = value
+    #set cellRenderer [ #text := unpack (productDescription product) ]
+
+  #setCellDataFunc priceColumn priceRenderer $ \cellLayout cellRenderer treeModel iter -> do
+    value <- Gtk.treeModelGetValue treeModel iter 0
+    let product = value
+    #set cellRenderer [ #text := show (productPrice product) ]
+
+  #appendColumn treeView idColumn
+  #appendColumn treeView nameColumn
+  #appendColumn treeView descColumn
+  #appendColumn treeView priceColumn
 
   -- Add scrolled window for tree view
   scrolledWindow <- new Gtk.ScrolledWindow []
@@ -180,8 +191,8 @@ createMainWindow conn productsRef = do
   #add mainBox scrolledWindow
 
   -- Selection handling
-  selection <- GtkOld.treeViewGetSelection treeView
-  GtkOld.treeSelectionSetMode selection GtkOld.SelectionSingle
+  selection <- #getSelection treeView
+  #setMode selection Gtk.SelectionSingle
 
   -- Function to refresh products list
   let refreshProductsList = do
@@ -189,18 +200,18 @@ createMainWindow conn productsRef = do
         case result of
           Right products -> do
             writeIORef productsRef products
-            GtkOld.listStoreClear listStore
-            mapM_ (GtkOld.listStoreAppend listStore) products
+            Gtk.listStoreClear listStore
+            mapM_ (Gtk.listStoreAppend listStore) products
           Left err -> putStrLn $ "Error fetching products: " ++ show err
 
   -- Function to get selected product
   let getSelectedProduct = do
-        selected <- GtkOld.treeSelectionGetSelectedRows selection
+        selected <- #getSelectedRows selection
         case selected of
           [] -> return Nothing
           (path:_) -> do
-            iter <- GtkOld.treeModelGetIter listStore path
-            GtkOld.treeModelGetValue listStore iter 0
+            iter <- Gtk.treeModelGetIter listStore path
+            Gtk.treeModelGetValue listStore iter 0
 
   -- Function to clear input fields
   let clearInputFields = do
@@ -286,13 +297,3 @@ main = do
       productsRef <- newIORef []
       createMainWindow conn productsRef
       release conn
-
--- Create table SQL (run this once in your database)
-{-
-CREATE TABLE product (
-    id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT NOT NULL,
-    price DECIMAL(10,2) NOT NULL
-);
--}
